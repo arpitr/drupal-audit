@@ -1,0 +1,64 @@
+# Gitleaks Ignore File for Drupal
+# Place this in your Drupal root directory as .gitleaksignore
+
+# Development and test files
+tests/**
+*.test
+*.test.php
+*/Tests/*
+*/tests/*
+
+# Local settings (often contain placeholder credentials)
+web/sites/*/settings.local.php
+sites/*/settings.local.php
+web/sites/default/settings.local.php
+sites/default/settings.local.php
+
+# Development configuration
+.ddev/**
+docker-compose.yml
+docker-compose.override.yml
+
+# Documentation
+README.md
+INSTALL.txt
+*.md
+
+# Node modules (lots of false positives)
+node_modules/**
+**/node_modules/**
+
+# Vendor directory (third-party code)
+# Note: Comment this out if you want to scan vendor code
+ vendor/**
+
+# Common false positive patterns
+# Uncomment if you get too many false positives
+
+# Example API keys in documentation
+# docs/**
+# examples/**
+
+# Drupal hash salt (not actually a secret, it's generated)
+# But if you want to ignore settings.php entirely:
+# web/sites/default/settings.php
+# sites/default/settings.php
+
+# Build and cache directories
+build/**
+cache/**
+.cache/**
+
+# Frontend build artifacts
+dist/**
+*/dist/**
+assets/compiled/**
+
+# Log files
+*.log
+logs/**
+
+# Temporary files
+tmp/**
+temp/**
+*.tmp

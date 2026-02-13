@@ -1,0 +1,300 @@
+{
+  "timestamp": "2026-02-14T02:59:21.441206",
+  "drupal_root": "/Users/arpitrastogi/workspace/drupal-test",
+  "composer_audit": {
+    "status": "failed",
+    "vulnerabilities_count": 11,
+    "vulnerabilities": [
+      {
+        "package": "drupal/core",
+        "advisory_id": "73",
+        "title": "Drupal core - Moderately critical - Defacement - SA-CORE-2025-007",
+        "severity": null,
+        "cve": "CVE-2025-13082",
+        "link": "https://www.drupal.org/sa-core-2025-007"
+      },
+      {
+        "package": "drupal/core",
+        "advisory_id": "74",
+        "title": "Drupal core - Moderately critical - Information disclosure - SA-CORE-2025-008",
+        "severity": null,
+        "cve": "CVE-2025-13083",
+        "link": "https://www.drupal.org/sa-core-2025-008"
+      },
+      {
+        "package": "drupal/core",
+        "advisory_id": "75",
+        "title": "Drupal core - Moderately critical - Denial of Service - SA-CORE-2025-005",
+        "severity": null,
+        "cve": "CVE-2025-13080",
+        "link": "https://www.drupal.org/sa-core-2025-005"
+      },
+      {
+        "package": "drupal/core",
+        "advisory_id": "76",
+        "title": "Drupal core - Moderately critical - Gadget chain - SA-CORE-2025-006",
+        "severity": null,
+        "cve": "CVE-2025-13081",
+        "link": "https://www.drupal.org/sa-core-2025-006"
+      },
+      {
+        "package": "drupal/core",
+        "advisory_id": "77",
+        "title": "Drupal core allows Exploiting Incorrectly Configured Access Control Security Levels",
+        "severity": "low",
+        "cve": "CVE-2025-13083",
+        "link": "https://github.com/advisories/GHSA-mhpg-hpj5-73r2"
+      },
+      {
+        "package": "drupal/core",
+        "advisory_id": "78",
+        "title": "Drupal core allows Content Spoofing",
+        "severity": "low",
+        "cve": "CVE-2025-13082",
+        "link": "https://github.com/advisories/GHSA-h89p-5896-f4q8"
+      },
+      {
+        "package": "drupal/core",
+        "advisory_id": "79",
+        "title": "Drupal core allows Forceful Browsing",
+        "severity": "low",
+        "cve": "CVE-2025-13080",
+        "link": "https://github.com/advisories/GHSA-83v7-c2cf-p9c2"
+      },
+      {
+        "package": "drupal/core",
+        "advisory_id": "80",
+        "title": "Drupal core allows Object Injection",
+        "severity": "medium",
+        "cve": "CVE-2025-13081",
+        "link": "https://github.com/advisories/GHSA-m6vv-vcj8-w8m7"
+      },
+      {
+        "package": "psy/psysh",
+        "advisory_id": "PKSA-4s4z-t146-6123",
+        "title": "PsySH has Local Privilege Escalation via CWD .psysh.php auto-load",
+        "severity": "medium",
+        "cve": "CVE-2026-25129",
+        "link": "https://github.com/advisories/GHSA-4486-gxhx-5mg7"
+      },
+      {
+        "package": "symfony/http-foundation",
+        "advisory_id": "PKSA-365x-2zjk-pt47",
+        "title": "CVE-2025-64500: Incorrect parsing of PATH_INFO can lead to limited authorization bypass",
+        "severity": "high",
+        "cve": "CVE-2025-64500",
+        "link": "https://symfony.com/blog/cve-2025-64500-incorrect-parsing-of-path-info-can-lead-to-limited-authorization-bypass"
+      },
+      {
+        "package": "symfony/process",
+        "advisory_id": "PKSA-rkkf-636k-qjb3",
+        "title": "Symfony's incorrect argument escaping under MSYS2/Git Bash can lead to destructive file operations on Windows",
+        "severity": "medium",
+        "cve": "CVE-2026-24739",
+        "link": "https://github.com/advisories/GHSA-r39x-jcww-82v6"
+      }
+    ],
+    "raw_advisories": {
+      "drupal/core": {
+        "73": {
+          "advisoryId": "SA-CORE-2025-007",
+          "packageName": "drupal/core",
+          "affectedVersions": ">= 8.0.0 < 10.4.9 || >= 10.5.0 < 10.5.6 || >= 11.0.0 < 11.1.9 || >= 11.2.0 < 11.2.8",
+          "title": "Drupal core - Moderately critical - Defacement - SA-CORE-2025-007",
+          "cve": "CVE-2025-13082",
+          "link": "https://www.drupal.org/sa-core-2025-007",
+          "reportedAt": "2025-11-12T20:16:21+00:00",
+          "sources": [
+            {
+              "name": "Drupal core - Moderately critical - Defacement - SA-CORE-2025-007",
+              "remoteId": "SA-CORE-2025-007"
+            }
+          ],
+          "severity": null
+        },
+        "74": {
+          "advisoryId": "SA-CORE-2025-008",
+          "packageName": "drupal/core",
+          "affectedVersions": ">= 8.0.0 < 10.4.9 || >= 10.5.0 < 10.5.6 || >= 11.0.0 < 11.1.9 || >= 11.2.0 < 11.2.8",
+          "title": "Drupal core - Moderately critical - Information disclosure - SA-CORE-2025-008",
+          "cve": "CVE-2025-13083",
+          "link": "https://www.drupal.org/sa-core-2025-008",
+          "reportedAt": "2025-11-12T20:16:22+00:00",
+          "sources": [
+            {
+              "name": "Drupal core - Moderately critical - Information disclosure - SA-CORE-2025-008",
+              "remoteId": "SA-CORE-2025-008"
+            }
+          ],
+          "severity": null
+        },
+        "75": {
+          "advisoryId": "SA-CORE-2025-005",
+          "packageName": "drupal/core",
+          "affectedVersions": ">= 8.0.0 < 10.4.9 || >= 10.5.0 < 10.5.6 || >= 11.0.0 < 11.1.9 || >= 11.2.0 < 11.2.8",
+          "title": "Drupal core - Moderately critical - Denial of Service - SA-CORE-2025-005",
+          "cve": "CVE-2025-13080",
+          "link": "https://www.drupal.org/sa-core-2025-005",
+          "reportedAt": "2025-11-12T18:33:05+00:00",
+          "sources": [
+            {
+              "name": "Drupal core - Moderately critical - Denial of Service - SA-CORE-2025-005",
+              "remoteId": "SA-CORE-2025-005"
+            }
+          ],
+          "severity": null
+        },
+        "76": {
+          "advisoryId": "SA-CORE-2025-006",
+          "packageName": "drupal/core",
+          "affectedVersions": ">= 8.0.0 < 10.4.9 || >= 10.5.0 < 10.5.6 || >= 11.0.0 < 11.1.9 || >= 11.2.0 < 11.2.8",
+          "title": "Drupal core - Moderately critical - Gadget chain - SA-CORE-2025-006",
+          "cve": "CVE-2025-13081",
+          "link": "https://www.drupal.org/sa-core-2025-006",
+          "reportedAt": "2025-11-12T18:34:02+00:00",
+          "sources": [
+            {
+              "name": "Drupal core - Moderately critical - Gadget chain - SA-CORE-2025-006",
+              "remoteId": "SA-CORE-2025-006"
+            }
+          ],
+          "severity": null
+        },
+        "77": {
+          "advisoryId": "PKSA-d8tb-wwz2-ctxk",
+          "packageName": "drupal/core",
+          "affectedVersions": ">=7.0,<7.103|>=11.2.0,<11.2.8|>=11.0.0,<11.1.9|>=10.5.0,<10.5.6|>=8.0.0,<10.4.9",
+          "title": "Drupal core allows Exploiting Incorrectly Configured Access Control Security Levels",
+          "cve": "CVE-2025-13083",
+          "link": "https://github.com/advisories/GHSA-mhpg-hpj5-73r2",
+          "reportedAt": "2025-11-18T18:32:53+00:00",
+          "sources": [
+            {
+              "name": "GitHub",
+              "remoteId": "GHSA-mhpg-hpj5-73r2"
+            }
+          ],
+          "severity": "low"
+        },
+        "78": {
+          "advisoryId": "PKSA-dh1f-zjm5-qg8y",
+          "packageName": "drupal/core",
+          "affectedVersions": ">=11.2.0,<11.2.8|>=11.0.0,<11.1.9|>=10.5.0,<10.5.6|>=8.0.0,<10.4.9",
+          "title": "Drupal core allows Content Spoofing",
+          "cve": "CVE-2025-13082",
+          "link": "https://github.com/advisories/GHSA-h89p-5896-f4q8",
+          "reportedAt": "2025-11-18T18:32:53+00:00",
+          "sources": [
+            {
+              "name": "GitHub",
+              "remoteId": "GHSA-h89p-5896-f4q8"
+            }
+          ],
+          "severity": "low"
+        },
+        "79": {
+          "advisoryId": "PKSA-bn52-vyzy-rmnm",
+          "packageName": "drupal/core",
+          "affectedVersions": ">=11.2.0,<11.2.8|>=11.0.0,<11.1.9|>=10.5.0,<10.5.6|>=8.0.0,<10.4.9",
+          "title": "Drupal core allows Forceful Browsing",
+          "cve": "CVE-2025-13080",
+          "link": "https://github.com/advisories/GHSA-83v7-c2cf-p9c2",
+          "reportedAt": "2025-11-18T18:32:53+00:00",
+          "sources": [
+            {
+              "name": "GitHub",
+              "remoteId": "GHSA-83v7-c2cf-p9c2"
+            }
+          ],
+          "severity": "low"
+        },
+        "80": {
+          "advisoryId": "PKSA-xj83-g6g8-41vf",
+          "packageName": "drupal/core",
+          "affectedVersions": ">=11.2.0,<11.2.8|>=11.0.0,<11.1.9|>=10.5.0,<10.5.6|>=8.0.0,<10.4.9",
+          "title": "Drupal core allows Object Injection",
+          "cve": "CVE-2025-13081",
+          "link": "https://github.com/advisories/GHSA-m6vv-vcj8-w8m7",
+          "reportedAt": "2025-11-18T18:32:53+00:00",
+          "sources": [
+            {
+              "name": "GitHub",
+              "remoteId": "GHSA-m6vv-vcj8-w8m7"
+            }
+          ],
+          "severity": "medium"
+        }
+      },
+      "psy/psysh": [
+        {
+          "advisoryId": "PKSA-4s4z-t146-6123",
+          "packageName": "psy/psysh",
+          "affectedVersions": "<=0.11.22|>=0.12.0,<=0.12.18",
+          "title": "PsySH has Local Privilege Escalation via CWD .psysh.php auto-load",
+          "cve": "CVE-2026-25129",
+          "link": "https://github.com/advisories/GHSA-4486-gxhx-5mg7",
+          "reportedAt": "2026-01-30T21:28:44+00:00",
+          "sources": [
+            {
+              "name": "GitHub",
+              "remoteId": "GHSA-4486-gxhx-5mg7"
+            }
+          ],
+          "severity": "medium"
+        }
+      ],
+      "symfony/http-foundation": [
+        {
+          "advisoryId": "PKSA-365x-2zjk-pt47",
+          "packageName": "symfony/http-foundation",
+          "affectedVersions": ">=2.0.0,<3.0.0|>=3.0.0,<4.0.0|>=4.0.0,<5.0.0|>=5.0.0,<5.1.0|>=5.1.0,<5.2.0|>=5.2.0,<5.3.0|>=5.3.0,<5.4.0|>=5.4.0,<5.4.50|>=6.0.0,<6.1.0|>=6.1.0,<6.2.0|>=6.2.0,<6.3.0|>=6.3.0,<6.4.0|>=6.4.0,<6.4.29|>=7.0.0,<7.1.0|>=7.1.0,<7.2.0|>=7.2.0,<7.3.0|>=7.3.0,<7.3.7",
+          "title": "CVE-2025-64500: Incorrect parsing of PATH_INFO can lead to limited authorization bypass",
+          "cve": "CVE-2025-64500",
+          "link": "https://symfony.com/blog/cve-2025-64500-incorrect-parsing-of-path-info-can-lead-to-limited-authorization-bypass",
+          "reportedAt": "2025-11-12T11:09:14+00:00",
+          "sources": [
+            {
+              "name": "GitHub",
+              "remoteId": "GHSA-3rg7-wf37-54rm"
+            },
+            {
+              "name": "FriendsOfPHP/security-advisories",
+              "remoteId": "symfony/http-foundation/CVE-2025-64500.yaml"
+            }
+          ],
+          "severity": "high"
+        }
+      ],
+      "symfony/process": [
+        {
+          "advisoryId": "PKSA-rkkf-636k-qjb3",
+          "packageName": "symfony/process",
+          "affectedVersions": ">=8.0,<8.0.5|>=7.4,<7.4.5|>=7.3,<7.3.11|>=6.4,<6.4.33|<5.4.51",
+          "title": "Symfony's incorrect argument escaping under MSYS2/Git Bash can lead to destructive file operations on Windows",
+          "cve": "CVE-2026-24739",
+          "link": "https://github.com/advisories/GHSA-r39x-jcww-82v6",
+          "reportedAt": "2026-01-28T21:28:10+00:00",
+          "sources": [
+            {
+              "name": "GitHub",
+              "remoteId": "GHSA-r39x-jcww-82v6"
+            }
+          ],
+          "severity": "medium"
+        }
+      ]
+    }
+  },
+  "phpcs_analysis": {
+    "status": "failed",
+    "paths": {}
+  },
+  "npm_security": {
+    "status": "skipped",
+    "reason": "Path does not exist"
+  },
+  "gitleaks": {
+    "status": "passed",
+    "secrets_found": 0
+  }
+}

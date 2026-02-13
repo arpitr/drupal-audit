@@ -1,0 +1,19 @@
+# Drupal Security Audit Script - Python Requirements
+# 
+# This script uses only Python standard library modules:
+# - subprocess
+# - sys
+# - os
+# - json
+# - argparse
+# - pathlib
+# - datetime
+# - typing
+#
+# No additional Python packages are required!
+#
+# However, the following system tools must be installed:
+# - Python 3.6+
+# - Composer (https://getcomposer.org/)
+# - Gitleaks (https://github.com/gitleaks/gitleaks)
+# - Node.js/NPM (optional, for theme scanning)

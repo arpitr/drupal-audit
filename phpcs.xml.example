@@ -1,0 +1,86 @@
+<?xml version="1.0"?>
+<!--
+  PHPCS Configuration for Drupal Projects
+  Place this file in your Drupal root directory as phpcs.xml
+  
+  This will be automatically used by the audit script if present.
+  Otherwise, the script uses default Drupal and DrupalPractice standards.
+-->
+<ruleset name="DrupalCustom">
+  <description>Custom Drupal coding standards configuration</description>
+
+  <!-- Include Drupal and DrupalPractice standards -->
+  <rule ref="Drupal"/>
+  <rule ref="DrupalPractice"/>
+
+  <!-- File extensions to check -->
+  <arg name="extensions" value="php,module,inc,install,test,profile,theme,info,txt,md,yml"/>
+
+  <!-- Show progress and use colors -->
+  <arg value="p"/>
+  <arg name="colors"/>
+
+  <!-- Paths to check (can be overridden by command-line arguments) -->
+  <!-- 
+  <file>web/modules/custom</file>
+  <file>web/themes/custom</file>
+  <file>web/profiles/custom</file>
+  -->
+
+  <!-- Paths to ignore -->
+  <exclude-pattern>*/node_modules/*</exclude-pattern>
+  <exclude-pattern>*/vendor/*</exclude-pattern>
+  <exclude-pattern>*/core/*</exclude-pattern>
+  <exclude-pattern>*/libraries/*</exclude-pattern>
+  <exclude-pattern>*.min.js</exclude-pattern>
+  <exclude-pattern>*.min.css</exclude-pattern>
+
+  <!-- 
+    OPTIONAL: Customize specific rules
+    Uncomment sections below to adjust standards to your team's needs
+  -->
+
+  <!-- Allow longer lines (default is 80) -->
+  <!-- 
+  <rule ref="Drupal.Files.LineLength">
+    <properties>
+      <property name="lineLimit" value="120"/>
+      <property name="absoluteLineLimit" value="180"/>
+    </properties>
+  </rule>
+  -->
+
+  <!-- Relax function comment requirements for tests -->
+  <!--
+  <rule ref="Drupal.Commenting.FunctionComment">
+    <exclude-pattern>*/Tests/*</exclude-pattern>
+    <exclude-pattern>*/tests/*</exclude-pattern>
+  </rule>
+  -->
+
+  <!-- Allow missing documentation for small private methods -->
+  <!--
+  <rule ref="Drupal.Commenting.FunctionComment.Missing">
+    <severity>4</severity>
+  </rule>
+  -->
+
+  <!-- Disable specific rules entirely -->
+  <!--
+  <rule ref="Drupal.Commenting.InlineComment.SpacingAfter">
+    <exclude name="Drupal.Commenting.InlineComment.SpacingAfter"/>
+  </rule>
+  -->
+
+  <!-- Allow TODO comments -->
+  <!--
+  <rule ref="Drupal.Commenting.TodoComment">
+    <exclude name="Drupal.Commenting.TodoComment.TodoComment"/>
+  </rule>
+  -->
+
+  <!-- Memory and time limits for large codebases -->
+  <ini name="memory_limit" value="512M"/>
+  <ini name="max_execution_time" value="300"/>
+
+</ruleset>
