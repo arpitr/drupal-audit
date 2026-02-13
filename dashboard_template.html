@@ -1,0 +1,874 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Drupal Security Audit Dashboard</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 20px;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        .header {
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+        }
+
+        .header h1 {
+            color: #2d3748;
+            font-size: 2em;
+            margin-bottom: 10px;
+        }
+
+        .header .subtitle {
+            color: #718096;
+            font-size: 0.95em;
+        }
+
+        .header .last-run {
+            display: inline-block;
+            background: #edf2f7;
+            padding: 8px 16px;
+            border-radius: 6px;
+            margin-top: 15px;
+            font-size: 0.9em;
+            color: #4a5568;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 25px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            transition: transform 0.2s;
+        }
+
+        .card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 8px 12px rgba(0, 0, 0, 0.15);
+        }
+
+        .card h2 {
+            color: #2d3748;
+            font-size: 1.3em;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #e2e8f0;
+        }
+
+        .stat-box {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 15px;
+            background: #f7fafc;
+            border-radius: 8px;
+            margin-bottom: 10px;
+        }
+
+        .stat-box .label {
+            color: #4a5568;
+            font-size: 0.9em;
+            font-weight: 500;
+        }
+
+        .stat-box .value {
+            font-size: 1.8em;
+            font-weight: bold;
+        }
+
+        .stat-box.critical .value { color: #c53030; }
+        .stat-box.high .value { color: #dd6b20; }
+        .stat-box.moderate .value { color: #d69e2e; }
+        .stat-box.low .value { color: #38a169; }
+        .stat-box.info .value { color: #3182ce; }
+
+        .comparison {
+            display: inline-block;
+            font-size: 0.8em;
+            padding: 4px 8px;
+            border-radius: 4px;
+            margin-left: 10px;
+            font-weight: 600;
+        }
+
+        .comparison.improved {
+            background: #c6f6d5;
+            color: #22543d;
+        }
+
+        .comparison.worsened {
+            background: #fed7d7;
+            color: #742a2a;
+        }
+
+        .comparison.unchanged {
+            background: #e2e8f0;
+            color: #4a5568;
+        }
+
+        .chart-container {
+            margin-top: 20px;
+            min-height: 300px;
+        }
+
+        .full-width {
+            grid-column: 1 / -1;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 0.85em;
+            font-weight: 600;
+            margin-left: 10px;
+        }
+
+        .status-badge.passed {
+            background: #c6f6d5;
+            color: #22543d;
+        }
+
+        .status-badge.failed {
+            background: #fed7d7;
+            color: #742a2a;
+        }
+
+        .status-badge.skipped {
+            background: #feebc8;
+            color: #744210;
+        }
+
+        .tooltip {
+            position: absolute;
+            background: rgba(0, 0, 0, 0.9);
+            color: white;
+            padding: 10px 15px;
+            border-radius: 6px;
+            font-size: 0.85em;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.2s;
+            z-index: 1000;
+        }
+
+        .legend {
+            display: flex;
+            gap: 15px;
+            margin-top: 15px;
+            flex-wrap: wrap;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.85em;
+        }
+
+        .legend-color {
+            width: 16px;
+            height: 16px;
+            border-radius: 3px;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 60px;
+            color: white;
+            font-size: 1.2em;
+        }
+
+        .error {
+            background: #fed7d7;
+            border: 2px solid #fc8181;
+            color: #742a2a;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+
+        .refresh-btn {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.9em;
+            font-weight: 600;
+            transition: background 0.2s;
+        }
+
+        .refresh-btn:hover {
+            background: #5a67d8;
+        }
+
+        /* D3 specific styles */
+        .axis path,
+        .axis line {
+            stroke: #cbd5e0;
+        }
+
+        .axis text {
+            fill: #4a5568;
+            font-size: 11px;
+        }
+
+        .bar {
+            transition: opacity 0.2s;
+        }
+
+        .bar:hover {
+            opacity: 0.8;
+        }
+
+        .line {
+            fill: none;
+            stroke-width: 2.5;
+        }
+
+        .dot {
+            stroke: white;
+            stroke-width: 2;
+        }
+
+        .grid line {
+            stroke: #e2e8f0;
+            stroke-opacity: 0.5;
+            shape-rendering: crispEdges;
+        }
+
+        .grid path {
+            stroke-width: 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="loading" id="loading">Loading audit data...</div>
+    
+    <div class="container" id="dashboard" style="display: none;">
+        <div class="header">
+            <h1>🔒 Drupal Security Audit Dashboard</h1>
+            <p class="subtitle" id="drupal-root"></p>
+            <div>
+                <span class="last-run" id="last-run"></span>
+                <button class="refresh-btn" onclick="location.reload()">↻ Refresh</button>
+            </div>
+        </div>
+
+        <!-- Overview Cards -->
+        <div class="grid" id="overview-grid">
+            <!-- Will be populated dynamically -->
+        </div>
+
+        <!-- Charts Section -->
+        <div class="grid">
+            <!-- Composer Vulnerabilities -->
+            <div class="card">
+                <h2>Composer Vulnerabilities by Severity</h2>
+                <div class="chart-container" id="composer-severity-chart"></div>
+            </div>
+
+            <!-- PHPCS Issues -->
+            <div class="card">
+                <h2>PHPCS Code Quality</h2>
+                <div class="chart-container" id="phpcs-chart"></div>
+            </div>
+
+            <!-- NPM Vulnerabilities -->
+            <div class="card">
+                <h2>NPM Vulnerabilities by Severity</h2>
+                <div class="chart-container" id="npm-severity-chart"></div>
+            </div>
+
+            <!-- Gitleaks Secrets -->
+            <div class="card">
+                <h2>Secret Detection</h2>
+                <div class="chart-container" id="gitleaks-chart"></div>
+            </div>
+        </div>
+
+        <!-- Trend Charts -->
+        <div class="grid">
+            <div class="card full-width">
+                <h2>Vulnerability Trends Over Time</h2>
+                <div class="chart-container" id="trend-chart"></div>
+                <div class="legend" id="trend-legend"></div>
+            </div>
+        </div>
+
+        <div class="grid">
+            <div class="card full-width">
+                <h2>Code Quality Trends (PHPCS)</h2>
+                <div class="chart-container" id="phpcs-trend-chart"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="tooltip" id="tooltip"></div>
+
+    <script>
+        // Color schemes
+        const colors = {
+            critical: '#c53030',
+            high: '#dd6b20',
+            moderate: '#d69e2e',
+            low: '#38a169',
+            info: '#3182ce',
+            errors: '#e53e3e',
+            warnings: '#ed8936',
+            secrets: '#805ad5'
+        };
+
+        // Load and display data
+        d3.json('audit_data.json').then(data => {
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('dashboard').style.display = 'block';
+            
+            // Update header
+            document.getElementById('drupal-root').textContent = `Project: ${data.drupal_root}`;
+            
+            if (data.history && data.history.length > 0) {
+                const lastRun = new Date(data.history[0].timestamp);
+                document.getElementById('last-run').textContent = 
+                    `Last audit: ${lastRun.toLocaleString()}`;
+            }
+
+            // Create overview cards
+            createOverviewCards(data);
+
+            // Create charts
+            if (data.latest) {
+                createComposerSeverityChart(data.latest.composer);
+                createPhpcsChart(data.latest.phpcs);
+                createNpmSeverityChart(data.latest.npm);
+                createGitleaksChart(data.latest.gitleaks);
+            }
+
+            // Create trend charts
+            if (data.history) {
+                createTrendChart(data.history);
+                createPhpcsTrendChart(data.history);
+            }
+
+        }).catch(error => {
+            document.getElementById('loading').innerHTML = 
+                `<div class="error">Error loading audit data: ${error.message}</div>`;
+        });
+
+        function createOverviewCards(data) {
+            const grid = document.getElementById('overview-grid');
+            const latest = data.latest;
+            const history = data.history;
+            
+            let previousRun = history.length > 1 ? history[1] : null;
+
+            // Composer Card
+            if (latest.composer) {
+                const comp = latest.composer;
+                const total = comp.total || 0;
+                const prevTotal = previousRun ? previousRun.composer_vulns : total;
+                
+                grid.innerHTML += `
+                    <div class="card">
+                        <h2>
+                            Composer Security
+                            <span class="status-badge ${comp.status}">${comp.status}</span>
+                        </h2>
+                        <div class="stat-box critical">
+                            <span class="label">Total Vulnerabilities</span>
+                            <div>
+                                <span class="value">${total}</span>
+                                ${getComparisonBadge(total, prevTotal)}
+                            </div>
+                        </div>
+                        <div class="stat-box critical">
+                            <span class="label">Critical</span>
+                            <span class="value">${comp.critical || 0}</span>
+                        </div>
+                        <div class="stat-box high">
+                            <span class="label">High</span>
+                            <span class="value">${comp.high || 0}</span>
+                        </div>
+                        <div class="stat-box moderate">
+                            <span class="label">Moderate</span>
+                            <span class="value">${comp.moderate || 0}</span>
+                        </div>
+                        <div class="stat-box low">
+                            <span class="label">Low</span>
+                            <span class="value">${comp.low || 0}</span>
+                        </div>
+                    </div>
+                `;
+            }
+
+            // PHPCS Card
+            if (latest.phpcs) {
+                const phpcs = latest.phpcs;
+                const errors = phpcs.errors || 0;
+                const warnings = phpcs.warnings || 0;
+                const prevErrors = previousRun ? previousRun.phpcs_errors : errors;
+                
+                grid.innerHTML += `
+                    <div class="card">
+                        <h2>
+                            Code Quality (PHPCS)
+                            <span class="status-badge ${phpcs.status}">${phpcs.status}</span>
+                        </h2>
+                        <div class="stat-box critical">
+                            <span class="label">Errors</span>
+                            <div>
+                                <span class="value">${errors}</span>
+                                ${getComparisonBadge(errors, prevErrors)}
+                            </div>
+                        </div>
+                        <div class="stat-box moderate">
+                            <span class="label">Warnings</span>
+                            <span class="value">${warnings}</span>
+                        </div>
+                    </div>
+                `;
+            }
+
+            // NPM Card
+            if (latest.npm) {
+                const npm = latest.npm;
+                const total = npm.total || 0;
+                const prevTotal = previousRun ? previousRun.npm_vulns : total;
+                
+                grid.innerHTML += `
+                    <div class="card">
+                        <h2>
+                            NPM Security
+                            <span class="status-badge ${npm.status}">${npm.status}</span>
+                        </h2>
+                        <div class="stat-box critical">
+                            <span class="label">Total Vulnerabilities</span>
+                            <div>
+                                <span class="value">${total}</span>
+                                ${getComparisonBadge(total, prevTotal)}
+                            </div>
+                        </div>
+                        <div class="stat-box critical">
+                            <span class="label">Critical</span>
+                            <span class="value">${npm.critical || 0}</span>
+                        </div>
+                        <div class="stat-box high">
+                            <span class="label">High</span>
+                            <span class="value">${npm.high || 0}</span>
+                        </div>
+                        <div class="stat-box moderate">
+                            <span class="label">Moderate</span>
+                            <span class="value">${npm.moderate || 0}</span>
+                        </div>
+                        <div class="stat-box low">
+                            <span class="label">Low</span>
+                            <span class="value">${npm.low || 0}</span>
+                        </div>
+                    </div>
+                `;
+            }
+
+            // Gitleaks Card
+            if (latest.gitleaks) {
+                const gitleaks = latest.gitleaks;
+                const secrets = gitleaks.secrets || 0;
+                const prevSecrets = previousRun ? previousRun.secrets_found : secrets;
+                
+                grid.innerHTML += `
+                    <div class="card">
+                        <h2>
+                            Secret Detection
+                            <span class="status-badge ${gitleaks.status}">${gitleaks.status}</span>
+                        </h2>
+                        <div class="stat-box critical">
+                            <span class="label">Secrets Found</span>
+                            <div>
+                                <span class="value">${secrets}</span>
+                                ${getComparisonBadge(secrets, prevSecrets)}
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+        }
+
+        function getComparisonBadge(current, previous) {
+            if (current === previous) {
+                return '<span class="comparison unchanged">No change</span>';
+            } else if (current < previous) {
+                const diff = previous - current;
+                return `<span class="comparison improved">-${diff} ↓</span>`;
+            } else {
+                const diff = current - previous;
+                return `<span class="comparison worsened">+${diff} ↑</span>`;
+            }
+        }
+
+        function createComposerSeverityChart(data) {
+            if (!data) return;
+
+            const chartData = [
+                { severity: 'Critical', count: data.critical || 0, color: colors.critical },
+                { severity: 'High', count: data.high || 0, color: colors.high },
+                { severity: 'Moderate', count: data.moderate || 0, color: colors.moderate },
+                { severity: 'Low', count: data.low || 0, color: colors.low }
+            ];
+
+            createBarChart('#composer-severity-chart', chartData);
+        }
+
+        function createNpmSeverityChart(data) {
+            if (!data) return;
+
+            const chartData = [
+                { severity: 'Critical', count: data.critical || 0, color: colors.critical },
+                { severity: 'High', count: data.high || 0, color: colors.high },
+                { severity: 'Moderate', count: data.moderate || 0, color: colors.moderate },
+                { severity: 'Low', count: data.low || 0, color: colors.low }
+            ];
+
+            createBarChart('#npm-severity-chart', chartData);
+        }
+
+        function createPhpcsChart(data) {
+            if (!data) return;
+
+            const chartData = [
+                { type: 'Errors', count: data.errors || 0, color: colors.errors },
+                { type: 'Warnings', count: data.warnings || 0, color: colors.warnings }
+            ];
+
+            createBarChart('#phpcs-chart', chartData);
+        }
+
+        function createGitleaksChart(data) {
+            if (!data) return;
+
+            const chartData = [
+                { type: 'Secrets Found', count: data.secrets || 0, color: colors.secrets }
+            ];
+
+            createBarChart('#gitleaks-chart', chartData);
+        }
+
+        function createBarChart(selector, data) {
+            const container = d3.select(selector);
+            container.selectAll('*').remove();
+
+            const width = container.node().getBoundingClientRect().width;
+            const height = 250;
+            const margin = { top: 20, right: 20, bottom: 50, top: 40 };
+
+            const svg = container.append('svg')
+                .attr('width', width)
+                .attr('height', height);
+
+            const chartWidth = width - margin.left - margin.right;
+            const chartHeight = height - margin.top - margin.bottom;
+
+            const g = svg.append('g')
+                .attr('transform', `translate(${margin.left},${margin.top})`);
+
+            // Scales
+            const x = d3.scaleBand()
+                .domain(data.map(d => d.severity || d.type))
+                .range([0, chartWidth])
+                .padding(0.3);
+
+            const y = d3.scaleLinear()
+                .domain([0, d3.max(data, d => d.count) || 1])
+                .nice()
+                .range([chartHeight, 0]);
+
+            // Axes
+            g.append('g')
+                .attr('class', 'axis')
+                .attr('transform', `translate(0,${chartHeight})`)
+                .call(d3.axisBottom(x));
+
+            g.append('g')
+                .attr('class', 'axis')
+                .call(d3.axisLeft(y).ticks(5));
+
+            // Bars
+            g.selectAll('.bar')
+                .data(data)
+                .enter()
+                .append('rect')
+                .attr('class', 'bar')
+                .attr('x', d => x(d.severity || d.type))
+                .attr('y', d => y(d.count))
+                .attr('width', x.bandwidth())
+                .attr('height', d => chartHeight - y(d.count))
+                .attr('fill', d => d.color)
+                .attr('rx', 4)
+                .on('mouseover', function(event, d) {
+                    showTooltip(event, `${d.severity || d.type}: ${d.count}`);
+                })
+                .on('mouseout', hideTooltip);
+
+            // Value labels on bars
+            g.selectAll('.label')
+                .data(data)
+                .enter()
+                .append('text')
+                .attr('class', 'label')
+                .attr('x', d => x(d.severity || d.type) + x.bandwidth() / 2)
+                .attr('y', d => y(d.count) - 5)
+                .attr('text-anchor', 'middle')
+                .attr('fill', '#4a5568')
+                .attr('font-size', '12px')
+                .attr('font-weight', 'bold')
+                .text(d => d.count);
+        }
+
+        function createTrendChart(history) {
+            const container = d3.select('#trend-chart');
+            container.selectAll('*').remove();
+
+            if (!history || history.length === 0) return;
+
+            const width = container.node().getBoundingClientRect().width;
+            const height = 350;
+            const margin = { top: 20, right: 120, bottom: 50, left: 60 };
+
+            const svg = container.append('svg')
+                .attr('width', width)
+                .attr('height', height);
+
+            const chartWidth = width - margin.left - margin.right;
+            const chartHeight = height - margin.top - margin.bottom;
+
+            const g = svg.append('g')
+                .attr('transform', `translate(${margin.left},${margin.top})`);
+
+            // Reverse history for chronological order
+            const data = history.slice().reverse();
+
+            // Parse dates
+            data.forEach(d => {
+                d.date = new Date(d.timestamp);
+            });
+
+            // Scales
+            const x = d3.scaleTime()
+                .domain(d3.extent(data, d => d.date))
+                .range([0, chartWidth]);
+
+            const y = d3.scaleLinear()
+                .domain([0, d3.max(data, d => 
+                    Math.max(d.composer_vulns, d.npm_vulns, d.secrets_found)
+                ) || 1])
+                .nice()
+                .range([chartHeight, 0]);
+
+            // Grid
+            g.append('g')
+                .attr('class', 'grid')
+                .call(d3.axisLeft(y).tickSize(-chartWidth).tickFormat(''));
+
+            // Axes
+            g.append('g')
+                .attr('class', 'axis')
+                .attr('transform', `translate(0,${chartHeight})`)
+                .call(d3.axisBottom(x).ticks(6));
+
+            g.append('g')
+                .attr('class', 'axis')
+                .call(d3.axisLeft(y));
+
+            // Lines
+            const lines = [
+                { key: 'composer_vulns', label: 'Composer', color: colors.critical },
+                { key: 'npm_vulns', label: 'NPM', color: colors.high },
+                { key: 'secrets_found', label: 'Secrets', color: colors.secrets }
+            ];
+
+            const line = d3.line()
+                .x(d => x(d.date))
+                .y(d => y(d.value))
+                .curve(d3.curveMonotoneX);
+
+            lines.forEach(({ key, label, color }) => {
+                const lineData = data.map(d => ({ date: d.date, value: d[key] || 0 }));
+
+                // Line
+                g.append('path')
+                    .datum(lineData)
+                    .attr('class', 'line')
+                    .attr('d', line)
+                    .attr('stroke', color)
+                    .attr('stroke-width', 2.5)
+                    .attr('fill', 'none');
+
+                // Dots
+                g.selectAll(`.dot-${key}`)
+                    .data(lineData)
+                    .enter()
+                    .append('circle')
+                    .attr('class', `dot dot-${key}`)
+                    .attr('cx', d => x(d.date))
+                    .attr('cy', d => y(d.value))
+                    .attr('r', 4)
+                    .attr('fill', color)
+                    .on('mouseover', function(event, d) {
+                        showTooltip(event, `${label}: ${d.value}<br>${d.date.toLocaleDateString()}`);
+                    })
+                    .on('mouseout', hideTooltip);
+            });
+
+            // Legend
+            const legend = d3.select('#trend-legend');
+            legend.selectAll('*').remove();
+
+            lines.forEach(({ label, color }) => {
+                const item = legend.append('div').attr('class', 'legend-item');
+                item.append('div')
+                    .attr('class', 'legend-color')
+                    .style('background-color', color);
+                item.append('span').text(label);
+            });
+        }
+
+        function createPhpcsTrendChart(history) {
+            const container = d3.select('#phpcs-trend-chart');
+            container.selectAll('*').remove();
+
+            if (!history || history.length === 0) return;
+
+            const width = container.node().getBoundingClientRect().width;
+            const height = 300;
+            const margin = { top: 20, right: 100, bottom: 50, left: 60 };
+
+            const svg = container.append('svg')
+                .attr('width', width)
+                .attr('height', height);
+
+            const chartWidth = width - margin.left - margin.right;
+            const chartHeight = height - margin.top - margin.bottom;
+
+            const g = svg.append('g')
+                .attr('transform', `translate(${margin.left},${margin.top})`);
+
+            const data = history.slice().reverse();
+            data.forEach(d => {
+                d.date = new Date(d.timestamp);
+            });
+
+            const x = d3.scaleTime()
+                .domain(d3.extent(data, d => d.date))
+                .range([0, chartWidth]);
+
+            const y = d3.scaleLinear()
+                .domain([0, d3.max(data, d => 
+                    Math.max(d.phpcs_errors || 0, d.phpcs_warnings || 0)
+                ) || 1])
+                .nice()
+                .range([chartHeight, 0]);
+
+            g.append('g')
+                .attr('class', 'grid')
+                .call(d3.axisLeft(y).tickSize(-chartWidth).tickFormat(''));
+
+            g.append('g')
+                .attr('class', 'axis')
+                .attr('transform', `translate(0,${chartHeight})`)
+                .call(d3.axisBottom(x).ticks(6));
+
+            g.append('g')
+                .attr('class', 'axis')
+                .call(d3.axisLeft(y));
+
+            const line = d3.line()
+                .x(d => x(d.date))
+                .y(d => y(d.value))
+                .curve(d3.curveMonotoneX);
+
+            // Errors line
+            const errorsData = data.map(d => ({ date: d.date, value: d.phpcs_errors || 0 }));
+            g.append('path')
+                .datum(errorsData)
+                .attr('class', 'line')
+                .attr('d', line)
+                .attr('stroke', colors.errors);
+
+            // Warnings line
+            const warningsData = data.map(d => ({ date: d.date, value: d.phpcs_warnings || 0 }));
+            g.append('path')
+                .datum(warningsData)
+                .attr('class', 'line')
+                .attr('d', line)
+                .attr('stroke', colors.warnings);
+
+            // Add dots with tooltips
+            g.selectAll('.dot-errors')
+                .data(errorsData)
+                .enter()
+                .append('circle')
+                .attr('class', 'dot')
+                .attr('cx', d => x(d.date))
+                .attr('cy', d => y(d.value))
+                .attr('r', 4)
+                .attr('fill', colors.errors)
+                .on('mouseover', function(event, d) {
+                    showTooltip(event, `Errors: ${d.value}<br>${d.date.toLocaleDateString()}`);
+                })
+                .on('mouseout', hideTooltip);
+
+            g.selectAll('.dot-warnings')
+                .data(warningsData)
+                .enter()
+                .append('circle')
+                .attr('class', 'dot')
+                .attr('cx', d => x(d.date))
+                .attr('cy', d => y(d.value))
+                .attr('r', 4)
+                .attr('fill', colors.warnings)
+                .on('mouseover', function(event, d) {
+                    showTooltip(event, `Warnings: ${d.value}<br>${d.date.toLocaleDateString()}`);
+                })
+                .on('mouseout', hideTooltip);
+        }
+
+        function showTooltip(event, content) {
+            const tooltip = d3.select('#tooltip');
+            tooltip.html(content)
+                .style('left', (event.pageX + 10) + 'px')
+                .style('top', (event.pageY - 10) + 'px')
+                .style('opacity', 1);
+        }
+
+        function hideTooltip() {
+            d3.select('#tooltip').style('opacity', 0);
+        }
+    </script>
+</body>
+</html>

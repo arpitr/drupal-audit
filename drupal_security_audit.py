@@ -17,9 +17,10 @@ import sys
 import os
 import json
 import argparse
+import sqlite3
 from pathlib import Path
 from datetime import datetime
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Optional
 
 
 class Colors:
@@ -35,11 +36,423 @@ class Colors:
     UNDERLINE = '\033[4m'
 
 
+class AuditDatabase:
+    """Database manager for storing audit history"""
+    
+    def __init__(self, db_path: str = None):
+        """Initialize database connection"""
+        if db_path is None:
+            db_path = os.path.expanduser('~/.drupal_audit/audit_history.db')
+        
+        self.db_path = Path(db_path)
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self.conn = None
+        self.init_database()
+    
+    def init_database(self):
+        """Create database tables if they don't exist"""
+        self.conn = sqlite3.connect(str(self.db_path))
+        cursor = self.conn.cursor()
+        
+        # Main audit runs table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS audit_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL,
+                drupal_root TEXT NOT NULL,
+                duration_seconds REAL,
+                overall_status TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        
+        # Composer audit results
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS composer_audits (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                audit_run_id INTEGER NOT NULL,
+                status TEXT,
+                total_vulnerabilities INTEGER DEFAULT 0,
+                critical_count INTEGER DEFAULT 0,
+                high_count INTEGER DEFAULT 0,
+                moderate_count INTEGER DEFAULT 0,
+                low_count INTEGER DEFAULT 0,
+                details TEXT,
+                FOREIGN KEY (audit_run_id) REFERENCES audit_runs(id)
+            )
+        ''')
+        
+        # PHPCS audit results
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS phpcs_audits (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                audit_run_id INTEGER NOT NULL,
+                status TEXT,
+                total_errors INTEGER DEFAULT 0,
+                total_warnings INTEGER DEFAULT 0,
+                files_scanned INTEGER DEFAULT 0,
+                paths_scanned TEXT,
+                details TEXT,
+                FOREIGN KEY (audit_run_id) REFERENCES audit_runs(id)
+            )
+        ''')
+        
+        # NPM audit results
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS npm_audits (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                audit_run_id INTEGER NOT NULL,
+                status TEXT,
+                themes_scanned INTEGER DEFAULT 0,
+                total_vulnerabilities INTEGER DEFAULT 0,
+                critical_count INTEGER DEFAULT 0,
+                high_count INTEGER DEFAULT 0,
+                moderate_count INTEGER DEFAULT 0,
+                low_count INTEGER DEFAULT 0,
+                details TEXT,
+                FOREIGN KEY (audit_run_id) REFERENCES audit_runs(id)
+            )
+        ''')
+        
+        # Gitleaks audit results
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS gitleaks_audits (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                audit_run_id INTEGER NOT NULL,
+                status TEXT,
+                secrets_found INTEGER DEFAULT 0,
+                details TEXT,
+                FOREIGN KEY (audit_run_id) REFERENCES audit_runs(id)
+            )
+        ''')
+        
+        self.conn.commit()
+    
+    def save_audit_run(self, results: Dict, duration: float) -> int:
+        """Save an audit run to the database"""
+        cursor = self.conn.cursor()
+        
+        # Determine overall status
+        statuses = [
+            results.get('composer_audit', {}).get('status'),
+            results.get('phpcs_analysis', {}).get('status'),
+            results.get('npm_security', {}).get('status'),
+            results.get('gitleaks', {}).get('status')
+        ]
+        
+        failed_count = sum(1 for s in statuses if s == 'failed')
+        overall_status = 'failed' if failed_count > 0 else 'passed'
+        
+        # Insert main audit run
+        cursor.execute('''
+            INSERT INTO audit_runs (timestamp, drupal_root, duration_seconds, overall_status)
+            VALUES (?, ?, ?, ?)
+        ''', (
+            results['timestamp'],
+            results['drupal_root'],
+            duration,
+            overall_status
+        ))
+        
+        audit_run_id = cursor.lastrowid
+        
+        # Save composer audit
+        composer_data = results.get('composer_audit', {})
+        if composer_data:
+            vulnerabilities = composer_data.get('vulnerabilities', [])
+            severity_counts = self._count_severities(vulnerabilities)
+            
+            cursor.execute('''
+                INSERT INTO composer_audits 
+                (audit_run_id, status, total_vulnerabilities, critical_count, 
+                 high_count, moderate_count, low_count, details)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                audit_run_id,
+                composer_data.get('status'),
+                composer_data.get('vulnerabilities_count', 0),
+                severity_counts.get('critical', 0),
+                severity_counts.get('high', 0),
+                severity_counts.get('moderate', 0),
+                severity_counts.get('low', 0),
+                json.dumps(composer_data)
+            ))
+        
+        # Save PHPCS audit
+        phpcs_data = results.get('phpcs_analysis', {})
+        if phpcs_data:
+            paths = phpcs_data.get('paths', {})
+            total_errors = sum(p.get('errors', 0) for p in paths.values())
+            total_warnings = sum(p.get('warnings', 0) for p in paths.values())
+            
+            cursor.execute('''
+                INSERT INTO phpcs_audits 
+                (audit_run_id, status, total_errors, total_warnings, 
+                 files_scanned, paths_scanned, details)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                audit_run_id,
+                phpcs_data.get('status'),
+                total_errors,
+                total_warnings,
+                len(paths),
+                json.dumps(list(paths.keys())),
+                json.dumps(phpcs_data)
+            ))
+        
+        # Save NPM audit
+        npm_data = results.get('npm_security', {})
+        if npm_data:
+            themes = npm_data.get('themes', {})
+            total_vulns = sum(t.get('vulnerabilities', 0) for t in themes.values())
+            npm_severity_counts = self._count_npm_severities(themes)
+            
+            cursor.execute('''
+                INSERT INTO npm_audits 
+                (audit_run_id, status, themes_scanned, total_vulnerabilities,
+                 critical_count, high_count, moderate_count, low_count, details)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                audit_run_id,
+                npm_data.get('status'),
+                npm_data.get('themes_scanned', 0),
+                total_vulns,
+                npm_severity_counts.get('critical', 0),
+                npm_severity_counts.get('high', 0),
+                npm_severity_counts.get('moderate', 0),
+                npm_severity_counts.get('low', 0),
+                json.dumps(npm_data)
+            ))
+        
+        # Save Gitleaks audit
+        gitleaks_data = results.get('gitleaks', {})
+        if gitleaks_data:
+            cursor.execute('''
+                INSERT INTO gitleaks_audits 
+                (audit_run_id, status, secrets_found, details)
+                VALUES (?, ?, ?, ?)
+            ''', (
+                audit_run_id,
+                gitleaks_data.get('status'),
+                gitleaks_data.get('secrets_found', 0),
+                json.dumps(gitleaks_data)
+            ))
+        
+        self.conn.commit()
+        return audit_run_id
+    
+    def _count_severities(self, vulnerabilities: List[Dict]) -> Dict[str, int]:
+        """Count vulnerabilities by severity"""
+        counts = {'critical': 0, 'high': 0, 'moderate': 0, 'low': 0}
+        for vuln in vulnerabilities:
+            severity = vuln.get('severity', '').lower()
+            if severity in counts:
+                counts[severity] += 1
+        return counts
+    
+    def _count_npm_severities(self, themes: Dict) -> Dict[str, int]:
+        """Count NPM vulnerabilities by severity from theme details"""
+        counts = {'critical': 0, 'high': 0, 'moderate': 0, 'low': 0}
+        for theme_data in themes.values():
+            details = theme_data.get('details', {})
+            for pkg_name, pkg_data in details.items():
+                if isinstance(pkg_data, dict):
+                    severity = pkg_data.get('severity', '').lower()
+                    if severity in counts:
+                        counts[severity] += 1
+        return counts
+    
+    def get_previous_run(self, drupal_root: str) -> Optional[Dict]:
+        """Get the most recent previous audit run for this Drupal installation"""
+        cursor = self.conn.cursor()
+        
+        cursor.execute('''
+            SELECT id, timestamp, overall_status, duration_seconds
+            FROM audit_runs
+            WHERE drupal_root = ?
+            ORDER BY created_at DESC
+            LIMIT 2
+        ''', (drupal_root,))
+        
+        rows = cursor.fetchall()
+        if len(rows) < 2:
+            return None
+        
+        # Get the second most recent (previous run)
+        prev_run = rows[1]
+        audit_run_id = prev_run[0]
+        
+        # Fetch all related data
+        cursor.execute('SELECT * FROM composer_audits WHERE audit_run_id = ?', (audit_run_id,))
+        composer = cursor.fetchone()
+        
+        cursor.execute('SELECT * FROM phpcs_audits WHERE audit_run_id = ?', (audit_run_id,))
+        phpcs = cursor.fetchone()
+        
+        cursor.execute('SELECT * FROM npm_audits WHERE audit_run_id = ?', (audit_run_id,))
+        npm = cursor.fetchone()
+        
+        cursor.execute('SELECT * FROM gitleaks_audits WHERE audit_run_id = ?', (audit_run_id,))
+        gitleaks = cursor.fetchone()
+        
+        return {
+            'timestamp': prev_run[1],
+            'overall_status': prev_run[2],
+            'duration': prev_run[3],
+            'composer': {
+                'total_vulnerabilities': composer[2] if composer else 0,
+                'critical': composer[3] if composer else 0,
+                'high': composer[4] if composer else 0,
+                'moderate': composer[5] if composer else 0,
+                'low': composer[6] if composer else 0,
+            } if composer else None,
+            'phpcs': {
+                'total_errors': phpcs[2] if phpcs else 0,
+                'total_warnings': phpcs[3] if phpcs else 0,
+            } if phpcs else None,
+            'npm': {
+                'total_vulnerabilities': npm[3] if npm else 0,
+                'critical': npm[4] if npm else 0,
+                'high': npm[5] if npm else 0,
+                'moderate': npm[6] if npm else 0,
+                'low': npm[7] if npm else 0,
+            } if npm else None,
+            'gitleaks': {
+                'secrets_found': gitleaks[2] if gitleaks else 0,
+            } if gitleaks else None
+        }
+    
+    def get_history(self, drupal_root: str, limit: int = 10) -> List[Dict]:
+        """Get audit history for dashboard"""
+        cursor = self.conn.cursor()
+        
+        cursor.execute('''
+            SELECT ar.id, ar.timestamp, ar.overall_status, ar.duration_seconds,
+                   ca.total_vulnerabilities as composer_vulns,
+                   ca.critical_count + ca.high_count + ca.moderate_count + ca.low_count as composer_total,
+                   pa.total_errors, pa.total_warnings,
+                   na.total_vulnerabilities as npm_vulns,
+                   ga.secrets_found
+            FROM audit_runs ar
+            LEFT JOIN composer_audits ca ON ar.id = ca.audit_run_id
+            LEFT JOIN phpcs_audits pa ON ar.id = pa.audit_run_id
+            LEFT JOIN npm_audits na ON ar.id = na.audit_run_id
+            LEFT JOIN gitleaks_audits ga ON ar.id = ga.audit_run_id
+            WHERE ar.drupal_root = ?
+            ORDER BY ar.created_at DESC
+            LIMIT ?
+        ''', (drupal_root, limit))
+        
+        rows = cursor.fetchall()
+        history = []
+        
+        for row in rows:
+            history.append({
+                'id': row[0],
+                'timestamp': row[1],
+                'overall_status': row[2],
+                'duration': row[3],
+                'composer_vulns': row[4] or 0,
+                'phpcs_errors': row[6] or 0,
+                'phpcs_warnings': row[7] or 0,
+                'npm_vulns': row[8] or 0,
+                'secrets_found': row[9] or 0
+            })
+        
+        return history
+    
+    def export_for_dashboard(self, drupal_root: str) -> str:
+        """Export data as JSON for D3.js dashboard"""
+        cursor = self.conn.cursor()
+        
+        # Get recent history
+        history = self.get_history(drupal_root, limit=30)
+        
+        # Get latest run details
+        cursor.execute('''
+            SELECT ar.id FROM audit_runs ar
+            WHERE ar.drupal_root = ?
+            ORDER BY ar.created_at DESC LIMIT 1
+        ''', (drupal_root,))
+        
+        latest_row = cursor.fetchone()
+        if not latest_row:
+            return json.dumps({'history': [], 'latest': None})
+        
+        latest_id = latest_row[0]
+        
+        # Get detailed breakdown for latest run
+        cursor.execute('''
+            SELECT status, total_vulnerabilities, critical_count, high_count, 
+                   moderate_count, low_count
+            FROM composer_audits WHERE audit_run_id = ?
+        ''', (latest_id,))
+        composer_latest = cursor.fetchone()
+        
+        cursor.execute('''
+            SELECT status, total_errors, total_warnings
+            FROM phpcs_audits WHERE audit_run_id = ?
+        ''', (latest_id,))
+        phpcs_latest = cursor.fetchone()
+        
+        cursor.execute('''
+            SELECT status, total_vulnerabilities, critical_count, high_count,
+                   moderate_count, low_count
+            FROM npm_audits WHERE audit_run_id = ?
+        ''', (latest_id,))
+        npm_latest = cursor.fetchone()
+        
+        cursor.execute('''
+            SELECT status, secrets_found FROM gitleaks_audits WHERE audit_run_id = ?
+        ''', (latest_id,))
+        gitleaks_latest = cursor.fetchone()
+        
+        latest_details = {
+            'composer': {
+                'status': composer_latest[0] if composer_latest else 'skipped',
+                'total': composer_latest[1] if composer_latest else 0,
+                'critical': composer_latest[2] if composer_latest else 0,
+                'high': composer_latest[3] if composer_latest else 0,
+                'moderate': composer_latest[4] if composer_latest else 0,
+                'low': composer_latest[5] if composer_latest else 0,
+            } if composer_latest else None,
+            'phpcs': {
+                'status': phpcs_latest[0] if phpcs_latest else 'skipped',
+                'errors': phpcs_latest[1] if phpcs_latest else 0,
+                'warnings': phpcs_latest[2] if phpcs_latest else 0,
+            } if phpcs_latest else None,
+            'npm': {
+                'status': npm_latest[0] if npm_latest else 'skipped',
+                'total': npm_latest[1] if npm_latest else 0,
+                'critical': npm_latest[2] if npm_latest else 0,
+                'high': npm_latest[3] if npm_latest else 0,
+                'moderate': npm_latest[4] if npm_latest else 0,
+                'low': npm_latest[5] if npm_latest else 0,
+            } if npm_latest else None,
+            'gitleaks': {
+                'status': gitleaks_latest[0] if gitleaks_latest else 'skipped',
+                'secrets': gitleaks_latest[1] if gitleaks_latest else 0,
+            } if gitleaks_latest else None
+        }
+        
+        return json.dumps({
+            'history': history,
+            'latest': latest_details,
+            'drupal_root': drupal_root
+        }, indent=2)
+    
+    def close(self):
+        """Close database connection"""
+        if self.conn:
+            self.conn.close()
+
+
 class DrupalSecurityAuditor:
     """Main class for Drupal security auditing"""
     
     def __init__(self, drupal_root: str, phpcs_paths: List[str] = None, 
-                 custom_themes_path: str = None, output_file: str = None):
+                 custom_themes_path: str = None, output_file: str = None,
+                 db_path: str = None, enable_dashboard: bool = True):
         """
         Initialize the auditor
         
@@ -48,13 +461,18 @@ class DrupalSecurityAuditor:
             phpcs_paths: List of paths to run PHPCS on (relative to drupal_root)
             custom_themes_path: Path to custom themes directory
             output_file: Optional file to save the audit report
+            db_path: Path to SQLite database (default: ~/.drupal_audit/audit_history.db)
+            enable_dashboard: Whether to enable dashboard generation
         """
         self.drupal_root = Path(drupal_root).resolve()
         self.phpcs_paths = phpcs_paths or []
         self.custom_themes_path = Path(custom_themes_path) if custom_themes_path else None
         self.output_file = output_file
+        self.enable_dashboard = enable_dashboard
+        self.start_time = datetime.now()
+        self.db = AuditDatabase(db_path) if enable_dashboard else None
         self.results = {
-            'timestamp': datetime.now().isoformat(),
+            'timestamp': self.start_time.isoformat(),
             'drupal_root': str(self.drupal_root),
             'composer_audit': {},
             'phpcs_analysis': {},
@@ -585,6 +1003,11 @@ class DrupalSecurityAuditor:
         """Print a summary of all audit results"""
         self.print_section("AUDIT SUMMARY")
         
+        # Get previous run for comparison
+        previous_run = None
+        if self.db:
+            previous_run = self.db.get_previous_run(str(self.drupal_root))
+        
         checks = [
             ('Composer Security Audit', self.results['composer_audit'].get('status')),
             ('PHPCS Code Analysis', self.results['phpcs_analysis'].get('status')),
@@ -601,6 +1024,63 @@ class DrupalSecurityAuditor:
                 print(f"{Colors.WARNING}⊘{Colors.ENDC} {check_name}: {Colors.WARNING}SKIPPED{Colors.ENDC}")
             else:
                 print(f"{Colors.WARNING}?{Colors.ENDC} {check_name}: {Colors.WARNING}ERROR{Colors.ENDC}")
+        
+        # Show comparison with previous run
+        if previous_run:
+            print(f"\n{Colors.BOLD}Comparison with Previous Run:{Colors.ENDC}")
+            print(f"Previous run: {previous_run['timestamp']}")
+            
+            # Composer comparison
+            if previous_run.get('composer'):
+                curr_vulns = self.results['composer_audit'].get('vulnerabilities_count', 0)
+                prev_vulns = previous_run['composer']['total_vulnerabilities']
+                diff = curr_vulns - prev_vulns
+                
+                if diff > 0:
+                    print(f"  Composer: {Colors.FAIL}+{diff} vulnerabilities{Colors.ENDC} ({prev_vulns} → {curr_vulns})")
+                elif diff < 0:
+                    print(f"  Composer: {Colors.OKGREEN}{diff} vulnerabilities{Colors.ENDC} ({prev_vulns} → {curr_vulns})")
+                else:
+                    print(f"  Composer: No change ({curr_vulns} vulnerabilities)")
+            
+            # PHPCS comparison
+            if previous_run.get('phpcs'):
+                curr_errors = sum(p.get('errors', 0) for p in self.results['phpcs_analysis'].get('paths', {}).values())
+                prev_errors = previous_run['phpcs']['total_errors']
+                diff = curr_errors - prev_errors
+                
+                if diff > 0:
+                    print(f"  PHPCS: {Colors.FAIL}+{diff} errors{Colors.ENDC} ({prev_errors} → {curr_errors})")
+                elif diff < 0:
+                    print(f"  PHPCS: {Colors.OKGREEN}{diff} errors{Colors.ENDC} ({prev_errors} → {curr_errors})")
+                else:
+                    print(f"  PHPCS: No change ({curr_errors} errors)")
+            
+            # NPM comparison
+            if previous_run.get('npm'):
+                curr_npm_vulns = sum(t.get('vulnerabilities', 0) for t in self.results['npm_security'].get('themes', {}).values())
+                prev_npm_vulns = previous_run['npm']['total_vulnerabilities']
+                diff = curr_npm_vulns - prev_npm_vulns
+                
+                if diff > 0:
+                    print(f"  NPM: {Colors.FAIL}+{diff} vulnerabilities{Colors.ENDC} ({prev_npm_vulns} → {curr_npm_vulns})")
+                elif diff < 0:
+                    print(f"  NPM: {Colors.OKGREEN}{diff} vulnerabilities{Colors.ENDC} ({prev_npm_vulns} → {curr_npm_vulns})")
+                else:
+                    print(f"  NPM: No change ({curr_npm_vulns} vulnerabilities)")
+            
+            # Gitleaks comparison
+            if previous_run.get('gitleaks'):
+                curr_secrets = self.results['gitleaks'].get('secrets_found', 0)
+                prev_secrets = previous_run['gitleaks']['secrets_found']
+                diff = curr_secrets - prev_secrets
+                
+                if diff > 0:
+                    print(f"  Gitleaks: {Colors.FAIL}+{diff} secrets{Colors.ENDC} ({prev_secrets} → {curr_secrets})")
+                elif diff < 0:
+                    print(f"  Gitleaks: {Colors.OKGREEN}{diff} secrets{Colors.ENDC} ({prev_secrets} → {curr_secrets})")
+                else:
+                    print(f"  Gitleaks: No change ({curr_secrets} secrets)")
         
         # Overall status
         failed_checks = sum(1 for _, status in checks if status == 'failed')
@@ -620,13 +1100,24 @@ class DrupalSecurityAuditor:
         """
         print(f"\n{Colors.BOLD}{Colors.OKCYAN}Drupal 11 Security Audit{Colors.ENDC}")
         print(f"{Colors.OKCYAN}Drupal Root: {self.drupal_root}{Colors.ENDC}")
-        print(f"{Colors.OKCYAN}Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}{Colors.ENDC}")
+        print(f"{Colors.OKCYAN}Started: {self.start_time.strftime('%Y-%m-%d %H:%M:%S')}{Colors.ENDC}")
         
         # Run all checks
         composer_passed = self.run_composer_audit()
         phpcs_passed = self.run_phpcs()
         npm_passed = self.scan_npm_packages()
         gitleaks_passed = self.run_gitleaks()
+        
+        # Calculate duration
+        duration = (datetime.now() - self.start_time).total_seconds()
+        
+        # Save to database
+        if self.db:
+            try:
+                audit_run_id = self.db.save_audit_run(self.results, duration)
+                print(f"\n{Colors.OKGREEN}✓ Audit results saved to database (Run ID: {audit_run_id}){Colors.ENDC}")
+            except Exception as e:
+                print(f"\n{Colors.WARNING}Warning: Failed to save to database: {e}{Colors.ENDC}")
         
         # Print summary
         self.print_summary()
@@ -635,8 +1126,84 @@ class DrupalSecurityAuditor:
         if self.output_file:
             self.save_report()
         
+        # Generate dashboard
+        if self.enable_dashboard and self.db:
+            self.generate_dashboard()
+        
+        # Clean up
+        if self.db:
+            self.db.close()
+        
         # Return overall status
         return all([composer_passed, phpcs_passed, npm_passed, gitleaks_passed])
+    
+    def generate_dashboard(self):
+        """Generate HTML dashboard with D3.js visualizations"""
+        try:
+            dashboard_data = self.db.export_for_dashboard(str(self.drupal_root))
+            
+            # Create dashboard HTML
+            dashboard_dir = self.drupal_root / 'audit-dashboard'
+            dashboard_dir.mkdir(exist_ok=True)
+            
+            dashboard_file = dashboard_dir / 'index.html'
+            data_file = dashboard_dir / 'audit_data.json'
+            
+            # Save data
+            with open(data_file, 'w') as f:
+                f.write(dashboard_data)
+            
+            # Generate HTML (we'll create this separately)
+            self._create_dashboard_html(dashboard_file)
+            
+            print(f"\n{Colors.OKGREEN}✓ Dashboard generated: {dashboard_file}{Colors.ENDC}")
+            print(f"{Colors.OKCYAN}  Open in browser: file://{dashboard_file}{Colors.ENDC}")
+            
+        except Exception as e:
+            print(f"\n{Colors.WARNING}Warning: Failed to generate dashboard: {e}{Colors.ENDC}")
+    
+    def _create_dashboard_html(self, output_path: Path):
+        """Create the HTML dashboard file"""
+        # Look for dashboard template
+        script_dir = Path(__file__).parent
+        template_path = script_dir / 'dashboard_template.html'
+        
+        # If running from installed location, try alternative paths
+        if not template_path.exists():
+            # Try same directory as the script
+            alt_paths = [
+                Path.cwd() / 'dashboard_template.html',
+                Path.home() / '.drupal_audit' / 'dashboard_template.html',
+            ]
+            
+            for alt_path in alt_paths:
+                if alt_path.exists():
+                    template_path = alt_path
+                    break
+        
+        if template_path.exists():
+            # Copy template to output
+            import shutil
+            shutil.copy(template_path, output_path)
+        else:
+            # Create embedded template if file not found
+            with open(output_path, 'w') as f:
+                f.write(self._get_embedded_dashboard_template())
+    
+    def _get_embedded_dashboard_template(self) -> str:
+        """Return embedded dashboard HTML template"""
+        # Return a minimal version that loads from CDN
+        return '''<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><title>Drupal Audit Dashboard</title>
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<style>body{font-family:sans-serif;padding:20px;background:#f5f5f5;}
+.card{background:white;padding:20px;margin:10px;border-radius:8px;box-shadow:0 2px 4px rgba(0,0,0,0.1);}
+</style></head><body>
+<div class="card"><h1>Dashboard Template Not Found</h1>
+<p>Place dashboard_template.html in the same directory as the audit script.</p>
+<p>Data is available in <code>audit_data.json</code></p></div>
+</body></html>'''
+        
 
 
 def main():
@@ -687,6 +1254,17 @@ Examples:
         help='Output file for JSON audit report'
     )
     
+    parser.add_argument(
+        '--db-path',
+        help='Path to SQLite database file (default: ~/.drupal_audit/audit_history.db)'
+    )
+    
+    parser.add_argument(
+        '--no-dashboard',
+        action='store_true',
+        help='Disable dashboard generation and database storage'
+    )
+    
     args = parser.parse_args()
     
     # Validate Drupal root
@@ -705,7 +1283,9 @@ Examples:
         drupal_root=str(drupal_root),
         phpcs_paths=args.phpcs_paths,
         custom_themes_path=args.themes_path,
-        output_file=args.output
+        output_file=args.output,
+        db_path=args.db_path,
+        enable_dashboard=not args.no_dashboard
     )
     
     success = auditor.run_audit()
