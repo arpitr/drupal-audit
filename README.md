@@ -1,6 +1,7 @@
 # Drupal 11 Security Audit Tool
 
 A comprehensive Python-based security auditing tool for Drupal 11 applications that performs:
+
 - Composer dependency vulnerability scanning
 - PHPCS static code analysis with Drupal coding standards
 - NPM package security auditing for custom themes
@@ -13,32 +14,34 @@ Before running this script, ensure you have the following installed on your syst
 ### Required
 
 1. **Python 3.6+**
+
    ```bash
    python3 --version
    ```
-
 2. **Composer** (for Drupal dependency management)
+
    ```bash
    composer --version
    ```
-   
-   Installation: https://getcomposer.org/download/
 
+   Installation: https://getcomposer.org/download/
 3. **Gitleaks** (for secret scanning)
+
    ```bash
    gitleaks version
    ```
-   
+
    Installation:
+
    ```bash
    # macOS
    brew install gitleaks
-   
+
    # Linux
    wget https://github.com/gitleaks/gitleaks/releases/download/v8.18.1/gitleaks_8.18.1_linux_x64.tar.gz
    tar -xzf gitleaks_8.18.1_linux_x64.tar.gz
    sudo mv gitleaks /usr/local/bin/
-   
+
    # Windows
    # Download from: https://github.com/gitleaks/gitleaks/releases
    ```
@@ -46,27 +49,29 @@ Before running this script, ensure you have the following installed on your syst
 ### Optional (for NPM scanning)
 
 4. **Node.js and NPM** (if scanning custom themes with JavaScript dependencies)
+
    ```bash
    npm --version
    ```
-   
+
    Installation: https://nodejs.org/
 
 ## Installation
 
 1. **Download the script**
+
    ```bash
    wget https://raw.githubusercontent.com/your-repo/drupal_security_audit.py
    # OR
    curl -O https://raw.githubusercontent.com/your-repo/drupal_security_audit.py
    ```
-
 2. **Make it executable**
+
    ```bash
    chmod +x drupal_security_audit.py
    ```
-
 3. **Verify installation**
+
    ```bash
    python3 drupal_security_audit.py --help
    ```
@@ -81,12 +86,13 @@ python3 drupal_security_audit.py [DRUPAL_ROOT] [OPTIONS]
 
 ### Arguments
 
-| Argument | Required | Description |
-|----------|----------|-------------|
-| `drupal_root` | Yes | Path to your Drupal root directory (where composer.json is located) |
-| `--phpcs-paths` | No | Space-separated list of paths to run PHPCS on (relative to drupal_root) |
-| `--themes-path` | No | Path to custom themes directory for NPM security scanning |
-| `--output` | No | Output file path for JSON audit report |
+
+| Argument        | Required | Description                                                             |
+| --------------- | -------- | ----------------------------------------------------------------------- |
+| `drupal_root`   | Yes      | Path to your Drupal root directory (where composer.json is located)     |
+| `--phpcs-paths` | No       | Space-separated list of paths to run PHPCS on (relative to drupal_root) |
+| `--themes-path` | No       | Path to custom themes directory for NPM security scanning               |
+| `--output`      | No       | Output file path for JSON audit report                                  |
 
 ### Examples
 
@@ -97,6 +103,7 @@ python3 drupal_security_audit.py /var/www/drupal
 ```
 
 This runs:
+
 - ✓ Composer security audit
 - ✗ PHPCS (skipped - no paths specified)
 - ✗ NPM audit (skipped - no themes path specified)
@@ -110,6 +117,7 @@ python3 drupal_security_audit.py /var/www/drupal \
 ```
 
 This runs PHPCS on:
+
 - `web/modules/custom`
 - `web/themes/custom`
 
@@ -146,6 +154,14 @@ python3 drupal_security_audit.py /var/www/drupal \
   --phpcs-paths web/modules/custom/module1 web/modules/custom/module2 web/themes/custom/mytheme
 ```
 
+#### Using the Wrapper Script
+
+```bash
+./run-audit.sh quick    # Fast scan
+./run-audit.sh full     # Complete audit
+./run-audit.sh ci       # For CI/CD pipelines
+```
+
 ## What the Script Does
 
 ### 1. Composer Security Audit
@@ -158,9 +174,10 @@ python3 drupal_security_audit.py /var/www/drupal \
 - Reports CVE numbers, severity levels, and fix recommendations
 
 **Sample Output:**
+
 ```
 ================================================================================
-                        COMPOSER SECURITY AUDIT                         
+                        COMPOSER SECURITY AUDIT                       
 ================================================================================
 
 Running composer audit...
@@ -186,9 +203,10 @@ Total vulnerabilities found: 3
 - Reports coding standard violations, potential bugs, and best practice issues
 
 **Sample Output:**
+
 ```
 ================================================================================
-                       PHPCS STATIC CODE ANALYSIS                       
+                       PHPCS STATIC CODE ANALYSIS                     
 ================================================================================
 
 Analyzing: web/modules/custom
@@ -206,9 +224,10 @@ Found 15 errors and 42 warnings
 - Reports severity levels (Critical, High, Moderate, Low)
 
 **Sample Output:**
+
 ```
 ================================================================================
-                       NPM PACKAGE SECURITY AUDIT                       
+                       NPM PACKAGE SECURITY AUDIT                     
 ================================================================================
 
 Found 2 package.json file(s)
@@ -235,9 +254,10 @@ Scanning theme: mytheme
 - Creates detailed report of findings
 
 **Sample Output:**
+
 ```
 ================================================================================
-                       GITLEAKS SECRET SCANNING                         
+                       GITLEAKS SECRET SCANNING                       
 ================================================================================
 
 Scanning for secrets with gitleaks...
@@ -259,7 +279,7 @@ At the end, you'll see a comprehensive summary:
 
 ```
 ================================================================================
-                              AUDIT SUMMARY                              
+                              AUDIT SUMMARY                            
 ================================================================================
 
 ✓ Composer Security Audit: PASSED
@@ -315,6 +335,7 @@ When using `--output`, a comprehensive JSON report is generated with structure:
 ### Gitleaks Report
 
 If secrets are found, a detailed `gitleaks-report.json` is created in the Drupal root with:
+
 - File paths
 - Line numbers
 - Secret types
@@ -339,31 +360,31 @@ on: [push, pull_request]
 jobs:
   security-audit:
     runs-on: ubuntu-latest
-    
+  
     steps:
       - uses: actions/checkout@v3
-      
+    
       - name: Setup Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
-      
+    
       - name: Install Gitleaks
         run: |
           wget https://github.com/gitleaks/gitleaks/releases/download/v8.18.1/gitleaks_8.18.1_linux_x64.tar.gz
           tar -xzf gitleaks_8.18.1_linux_x64.tar.gz
           sudo mv gitleaks /usr/local/bin/
-      
+    
       - name: Install Composer dependencies
         run: composer install
-      
+    
       - name: Run Security Audit
         run: |
           python3 drupal_security_audit.py . \
             --phpcs-paths web/modules/custom \
             --themes-path web/themes/custom \
             --output audit-report.json
-      
+    
       - name: Upload Audit Report
         if: always()
         uses: actions/upload-artifact@v3
@@ -409,6 +430,7 @@ Ensure you're pointing to the correct Drupal root directory (where `composer.jso
 ### PHPCS installation fails
 
 Try manually installing:
+
 ```bash
 cd /path/to/drupal
 composer require --dev squizlabs/php_codesniffer
@@ -418,6 +440,7 @@ composer require --dev drupal/coder
 ### NPM audit fails
 
 Ensure Node.js and npm are installed:
+
 ```bash
 node --version
 npm --version
@@ -428,6 +451,7 @@ If npm is installed but themes fail, try running `npm install` in the theme dire
 ### Permission denied errors
 
 Make sure the script has execute permissions:
+
 ```bash
 chmod +x drupal_security_audit.py
 ```
@@ -484,6 +508,7 @@ MIT License - Feel free to use and modify as needed.
 ## Support
 
 For issues, questions, or contributions:
+
 - Create an issue in the repository
 - Check Drupal security advisories: https://www.drupal.org/security
 - Gitleaks documentation: https://github.com/gitleaks/gitleaks
@@ -491,6 +516,7 @@ For issues, questions, or contributions:
 ## Changelog
 
 ### Version 1.0.0 (2024-02-14)
+
 - Initial release
 - Composer audit support
 - PHPCS integration with Drupal standards
