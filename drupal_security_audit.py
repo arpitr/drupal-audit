@@ -97,6 +97,22 @@ class AuditDatabase:
             )
         ''')
         
+        # PHPStan audit results
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS phpstan_audits (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                audit_run_id INTEGER NOT NULL,
+                status TEXT,
+                total_errors INTEGER DEFAULT 0,
+                total_file_errors INTEGER DEFAULT 0,
+                files_with_errors INTEGER DEFAULT 0,
+                files_analyzed INTEGER DEFAULT 0,
+                paths_scanned TEXT,
+                details TEXT,
+                FOREIGN KEY (audit_run_id) REFERENCES audit_runs(id)
+            )
+        ''')
+        
         # NPM audit results
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS npm_audits (
@@ -200,6 +216,25 @@ class AuditDatabase:
                 json.dumps(phpcs_data)
             ))
         
+        # Save PHPStan audit
+        phpstan_data = results.get('phpstan_analysis', {})
+        if phpstan_data:
+            cursor.execute('''
+                INSERT INTO phpstan_audits 
+                (audit_run_id, status, total_errors, total_file_errors,
+                 files_with_errors, files_analyzed, paths_scanned, details)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                audit_run_id,
+                phpstan_data.get('status'),
+                phpstan_data.get('total_errors', 0),
+                phpstan_data.get('total_file_errors', 0),
+                phpstan_data.get('files_with_errors', 0),
+                phpstan_data.get('files_analyzed', 0),
+                json.dumps(phpstan_data.get('paths_scanned', [])),
+                json.dumps(phpstan_data)
+            ))
+        
         # Save NPM audit
         npm_data = results.get('npm_security', {})
         if npm_data:
@@ -243,11 +278,59 @@ class AuditDatabase:
     
     def _count_severities(self, vulnerabilities: List[Dict]) -> Dict[str, int]:
         """Count vulnerabilities by severity"""
-        counts = {'critical': 0, 'high': 0, 'moderate': 0, 'low': 0}
+        counts = {'critical': 0, 'high': 0, 'moderate': 0, 'low': 0, 'info': 0, 'unknown': 0}
+        
+        if not vulnerabilities:
+            return counts
+        
         for vuln in vulnerabilities:
-            severity = vuln.get('severity', '').lower()
-            if severity in counts:
-                counts[severity] += 1
+            severity = None
+            
+            # Try to get severity from direct field
+            if 'severity' in vuln and vuln['severity'] is not None:
+                severity = vuln['severity']
+            elif 'Severity' in vuln and vuln['Severity'] is not None:
+                severity = vuln['Severity']
+            
+            # If no severity field, try to extract from title
+            # Drupal advisories format: "Drupal core - Moderately critical - ..."
+            if not severity and 'title' in vuln:
+                title = str(vuln['title']).lower()
+                
+                if 'critical' in title:
+                    if 'moderately critical' in title or 'moderately-critical' in title:
+                        severity = 'moderate'
+                    elif 'highly critical' in title or 'highly-critical' in title:
+                        severity = 'critical'
+                    else:
+                        severity = 'critical'
+                elif 'important' in title or 'high' in title:
+                    severity = 'high'
+                elif 'moderate' in title or 'medium' in title:
+                    severity = 'moderate'
+                elif 'minor' in title or 'low' in title:
+                    severity = 'low'
+            
+            # Normalize severity to lowercase
+            if severity:
+                severity = str(severity).lower().strip()
+                
+                # Map common variations
+                if severity in ['critical', 'crit', 'highly critical', 'highly-critical']:
+                    counts['critical'] += 1
+                elif severity in ['high', 'important']:
+                    counts['high'] += 1
+                elif severity in ['moderate', 'medium', 'mod', 'moderately critical', 'moderately-critical']:
+                    counts['moderate'] += 1
+                elif severity in ['low', 'minor']:
+                    counts['low'] += 1
+                elif severity in ['info', 'informational']:
+                    counts['info'] += 1
+                else:
+                    counts['unknown'] += 1
+            else:
+                counts['unknown'] += 1
+        
         return counts
     
     def _count_npm_severities(self, themes: Dict) -> Dict[str, int]:
@@ -282,17 +365,44 @@ class AuditDatabase:
         prev_run = rows[1]
         audit_run_id = prev_run[0]
         
-        # Fetch all related data
-        cursor.execute('SELECT * FROM composer_audits WHERE audit_run_id = ?', (audit_run_id,))
+        # Fetch composer audit data
+        # Schema: id, audit_run_id, status, total_vulnerabilities, critical_count, high_count, moderate_count, low_count, details
+        cursor.execute('''
+            SELECT status, total_vulnerabilities, critical_count, high_count, moderate_count, low_count
+            FROM composer_audits WHERE audit_run_id = ?
+        ''', (audit_run_id,))
         composer = cursor.fetchone()
         
-        cursor.execute('SELECT * FROM phpcs_audits WHERE audit_run_id = ?', (audit_run_id,))
+        # Fetch phpcs audit data
+        # Schema: id, audit_run_id, status, total_errors, total_warnings, files_scanned, paths_scanned, details
+        cursor.execute('''
+            SELECT status, total_errors, total_warnings
+            FROM phpcs_audits WHERE audit_run_id = ?
+        ''', (audit_run_id,))
         phpcs = cursor.fetchone()
         
-        cursor.execute('SELECT * FROM npm_audits WHERE audit_run_id = ?', (audit_run_id,))
+        # Fetch phpstan audit data
+        # Schema: id, audit_run_id, status, total_errors, total_file_errors, files_with_errors, files_analyzed, paths_scanned, details
+        cursor.execute('''
+            SELECT status, total_errors, total_file_errors, files_with_errors, files_analyzed
+            FROM phpstan_audits WHERE audit_run_id = ?
+        ''', (audit_run_id,))
+        phpstan = cursor.fetchone()
+        
+        # Fetch npm audit data
+        # Schema: id, audit_run_id, status, themes_scanned, total_vulnerabilities, critical_count, high_count, moderate_count, low_count, details
+        cursor.execute('''
+            SELECT status, themes_scanned, total_vulnerabilities, critical_count, high_count, moderate_count, low_count
+            FROM npm_audits WHERE audit_run_id = ?
+        ''', (audit_run_id,))
         npm = cursor.fetchone()
         
-        cursor.execute('SELECT * FROM gitleaks_audits WHERE audit_run_id = ?', (audit_run_id,))
+        # Fetch gitleaks audit data
+        # Schema: id, audit_run_id, status, secrets_found, details
+        cursor.execute('''
+            SELECT status, secrets_found
+            FROM gitleaks_audits WHERE audit_run_id = ?
+        ''', (audit_run_id,))
         gitleaks = cursor.fetchone()
         
         return {
@@ -300,25 +410,31 @@ class AuditDatabase:
             'overall_status': prev_run[2],
             'duration': prev_run[3],
             'composer': {
-                'total_vulnerabilities': composer[2] if composer else 0,
-                'critical': composer[3] if composer else 0,
-                'high': composer[4] if composer else 0,
-                'moderate': composer[5] if composer else 0,
-                'low': composer[6] if composer else 0,
+                'total_vulnerabilities': int(composer[1]) if composer and composer[1] is not None else 0,
+                'critical': int(composer[2]) if composer and composer[2] is not None else 0,
+                'high': int(composer[3]) if composer and composer[3] is not None else 0,
+                'moderate': int(composer[4]) if composer and composer[4] is not None else 0,
+                'low': int(composer[5]) if composer and composer[5] is not None else 0,
             } if composer else None,
             'phpcs': {
-                'total_errors': phpcs[2] if phpcs else 0,
-                'total_warnings': phpcs[3] if phpcs else 0,
+                'total_errors': int(phpcs[1]) if phpcs and phpcs[1] is not None else 0,
+                'total_warnings': int(phpcs[2]) if phpcs and phpcs[2] is not None else 0,
             } if phpcs else None,
+            'phpstan': {
+                'total_errors': int(phpstan[1]) if phpstan and phpstan[1] is not None else 0,
+                'total_file_errors': int(phpstan[2]) if phpstan and phpstan[2] is not None else 0,
+                'files_with_errors': int(phpstan[3]) if phpstan and phpstan[3] is not None else 0,
+                'files_analyzed': int(phpstan[4]) if phpstan and phpstan[4] is not None else 0,
+            } if phpstan else None,
             'npm': {
-                'total_vulnerabilities': npm[3] if npm else 0,
-                'critical': npm[4] if npm else 0,
-                'high': npm[5] if npm else 0,
-                'moderate': npm[6] if npm else 0,
-                'low': npm[7] if npm else 0,
+                'total_vulnerabilities': int(npm[2]) if npm and npm[2] is not None else 0,
+                'critical': int(npm[3]) if npm and npm[3] is not None else 0,
+                'high': int(npm[4]) if npm and npm[4] is not None else 0,
+                'moderate': int(npm[5]) if npm and npm[5] is not None else 0,
+                'low': int(npm[6]) if npm and npm[6] is not None else 0,
             } if npm else None,
             'gitleaks': {
-                'secrets_found': gitleaks[2] if gitleaks else 0,
+                'secrets_found': int(gitleaks[1]) if gitleaks and gitleaks[1] is not None else 0,
             } if gitleaks else None
         }
     
@@ -331,11 +447,13 @@ class AuditDatabase:
                    ca.total_vulnerabilities as composer_vulns,
                    ca.critical_count + ca.high_count + ca.moderate_count + ca.low_count as composer_total,
                    pa.total_errors, pa.total_warnings,
+                   psa.total_errors as phpstan_errors,
                    na.total_vulnerabilities as npm_vulns,
                    ga.secrets_found
             FROM audit_runs ar
             LEFT JOIN composer_audits ca ON ar.id = ca.audit_run_id
             LEFT JOIN phpcs_audits pa ON ar.id = pa.audit_run_id
+            LEFT JOIN phpstan_audits psa ON ar.id = psa.audit_run_id
             LEFT JOIN npm_audits na ON ar.id = na.audit_run_id
             LEFT JOIN gitleaks_audits ga ON ar.id = ga.audit_run_id
             WHERE ar.drupal_root = ?
@@ -355,8 +473,9 @@ class AuditDatabase:
                 'composer_vulns': row[4] or 0,
                 'phpcs_errors': row[6] or 0,
                 'phpcs_warnings': row[7] or 0,
-                'npm_vulns': row[8] or 0,
-                'secrets_found': row[9] or 0
+                'phpstan_errors': row[8] or 0,
+                'npm_vulns': row[9] or 0,
+                'secrets_found': row[10] or 0
             })
         
         return history
@@ -384,7 +503,7 @@ class AuditDatabase:
         # Get detailed breakdown for latest run
         cursor.execute('''
             SELECT status, total_vulnerabilities, critical_count, high_count, 
-                   moderate_count, low_count
+                   moderate_count, low_count, details
             FROM composer_audits WHERE audit_run_id = ?
         ''', (latest_id,))
         composer_latest = cursor.fetchone()
@@ -394,6 +513,12 @@ class AuditDatabase:
             FROM phpcs_audits WHERE audit_run_id = ?
         ''', (latest_id,))
         phpcs_latest = cursor.fetchone()
+        
+        cursor.execute('''
+            SELECT status, total_errors, total_file_errors, files_with_errors, files_analyzed
+            FROM phpstan_audits WHERE audit_run_id = ?
+        ''', (latest_id,))
+        phpstan_latest = cursor.fetchone()
         
         cursor.execute('''
             SELECT status, total_vulnerabilities, critical_count, high_count,
@@ -407,6 +532,7 @@ class AuditDatabase:
         ''', (latest_id,))
         gitleaks_latest = cursor.fetchone()
         
+        # Build latest details object
         latest_details = {
             'composer': {
                 'status': composer_latest[0] if composer_latest else 'skipped',
@@ -421,6 +547,13 @@ class AuditDatabase:
                 'errors': phpcs_latest[1] if phpcs_latest else 0,
                 'warnings': phpcs_latest[2] if phpcs_latest else 0,
             } if phpcs_latest else None,
+            'phpstan': {
+                'status': phpstan_latest[0] if phpstan_latest else 'skipped',
+                'errors': phpstan_latest[1] if phpstan_latest else 0,
+                'file_errors': phpstan_latest[2] if phpstan_latest else 0,
+                'files_with_errors': phpstan_latest[3] if phpstan_latest else 0,
+                'files_analyzed': phpstan_latest[4] if phpstan_latest else 0,
+            } if phpstan_latest else None,
             'npm': {
                 'status': npm_latest[0] if npm_latest else 'skipped',
                 'total': npm_latest[1] if npm_latest else 0,
@@ -434,6 +567,14 @@ class AuditDatabase:
                 'secrets': gitleaks_latest[1] if gitleaks_latest else 0,
             } if gitleaks_latest else None
         }
+        
+        # Debug: Print severity counts
+        if composer_latest:
+            print(f"\n{Colors.OKBLUE}Dashboard Export - Composer Severity Counts:{Colors.ENDC}")
+            print(f"  Critical: {composer_latest[2]}")
+            print(f"  High: {composer_latest[3]}")
+            print(f"  Moderate: {composer_latest[4]}")
+            print(f"  Low: {composer_latest[5]}")
         
         return json.dumps({
             'history': history,
@@ -451,6 +592,7 @@ class DrupalSecurityAuditor:
     """Main class for Drupal security auditing"""
     
     def __init__(self, drupal_root: str, phpcs_paths: List[str] = None, 
+                 phpstan_paths: List[str] = None,
                  custom_themes_path: str = None, output_file: str = None,
                  db_path: str = None, enable_dashboard: bool = True):
         """
@@ -459,6 +601,7 @@ class DrupalSecurityAuditor:
         Args:
             drupal_root: Path to Drupal root directory
             phpcs_paths: List of paths to run PHPCS on (relative to drupal_root)
+            phpstan_paths: List of paths to run PHPStan on (relative to drupal_root)
             custom_themes_path: Path to custom themes directory
             output_file: Optional file to save the audit report
             db_path: Path to SQLite database (default: ~/.drupal_audit/audit_history.db)
@@ -466,6 +609,7 @@ class DrupalSecurityAuditor:
         """
         self.drupal_root = Path(drupal_root).resolve()
         self.phpcs_paths = phpcs_paths or []
+        self.phpstan_paths = phpstan_paths or []
         self.custom_themes_path = Path(custom_themes_path) if custom_themes_path else None
         self.output_file = output_file
         self.enable_dashboard = enable_dashboard
@@ -476,6 +620,7 @@ class DrupalSecurityAuditor:
             'drupal_root': str(self.drupal_root),
             'composer_audit': {},
             'phpcs_analysis': {},
+            'phpstan_analysis': {},
             'npm_security': {},
             'gitleaks': {}
         }
@@ -801,6 +946,193 @@ class DrupalSecurityAuditor:
         
         return all_passed
     
+    def check_phpstan_installed(self) -> bool:
+        """Check if PHPStan is installed via composer"""
+        vendor_bin = self.drupal_root / 'vendor' / 'bin' / 'phpstan'
+        return vendor_bin.exists()
+    
+    def install_phpstan(self) -> bool:
+        """Install PHPStan with Drupal extensions"""
+        print(f"{Colors.OKBLUE}Installing PHPStan with Drupal extensions...{Colors.ENDC}")
+        
+        packages = [
+            'phpstan/phpstan',
+            'mglaman/phpstan-drupal',
+            'phpstan/phpstan-deprecation-rules'
+        ]
+        
+        returncode, stdout, stderr = self.run_command([
+            'composer',
+            'require',
+            '--dev',
+            *packages,
+            '--no-interaction'
+        ])
+        
+        if returncode != 0:
+            print(f"{Colors.FAIL}✗ Failed to install PHPStan: {stderr}{Colors.ENDC}")
+            return False
+        
+        print(f"{Colors.OKGREEN}✓ PHPStan installed successfully{Colors.ENDC}")
+        return True
+    
+    def create_phpstan_config(self) -> bool:
+        """Create PHPStan configuration file if it doesn't exist"""
+        config_file = self.drupal_root / 'phpstan.neon'
+        
+        if config_file.exists():
+            print(f"{Colors.OKBLUE}Using existing phpstan.neon{Colors.ENDC}")
+            return True
+        
+        print(f"{Colors.OKBLUE}Creating phpstan.neon configuration...{Colors.ENDC}")
+        
+        config_content = """includes:
+    - vendor/mglaman/phpstan-drupal/extension.neon
+    - vendor/phpstan/phpstan-deprecation-rules/rules.neon
+
+parameters:
+    level: 1
+    drupal:
+        drupal_root: web
+    paths:
+        - web/modules/custom
+        - web/themes/custom
+    excludePaths:
+        - web/*/node_modules/*
+        - web/*/vendor/*
+        - */tests/*
+        - */Tests/*
+    ignoreErrors:
+        # Ignore common Drupal core issues
+        - '#Call to deprecated#'
+"""
+        
+        try:
+            with open(config_file, 'w') as f:
+                f.write(config_content)
+            print(f"{Colors.OKGREEN}✓ Created phpstan.neon{Colors.ENDC}")
+            return True
+        except Exception as e:
+            print(f"{Colors.FAIL}✗ Failed to create config: {e}{Colors.ENDC}")
+            return False
+    
+    def run_phpstan(self) -> bool:
+        """
+        Run PHPStan static analysis
+        
+        Returns:
+            True if no issues found, False otherwise
+        """
+        self.print_section("PHPSTAN STATIC ANALYSIS")
+        
+        if not self.check_phpstan_installed():
+            print(f"{Colors.WARNING}PHPStan not found. Installing...{Colors.ENDC}")
+            if not self.install_phpstan():
+                self.results['phpstan_analysis']['status'] = 'skipped'
+                self.results['phpstan_analysis']['reason'] = 'Installation failed'
+                return False
+        
+        # Create config if needed
+        self.create_phpstan_config()
+        
+        if not self.phpstan_paths:
+            print(f"{Colors.WARNING}No PHPStan paths specified. Skipping analysis.{Colors.ENDC}")
+            self.results['phpstan_analysis']['status'] = 'skipped'
+            self.results['phpstan_analysis']['reason'] = 'No paths specified'
+            return True
+        
+        phpstan_bin = self.drupal_root / 'vendor' / 'bin' / 'phpstan'
+        all_passed = True
+        total_errors = 0
+        total_file_errors = 0
+        files_with_errors = 0
+        files_analyzed = 0
+        
+        print(f"\n{Colors.OKBLUE}Running PHPStan analysis...{Colors.ENDC}")
+        
+        # Build paths argument
+        paths_to_analyze = []
+        for path in self.phpstan_paths:
+            full_path = self.drupal_root / path
+            if full_path.exists():
+                paths_to_analyze.append(str(full_path))
+            else:
+                print(f"{Colors.WARNING}Warning: Path does not exist: {path}{Colors.ENDC}")
+        
+        if not paths_to_analyze:
+            print(f"{Colors.WARNING}No valid paths to analyze{Colors.ENDC}")
+            self.results['phpstan_analysis']['status'] = 'skipped'
+            return True
+        
+        # Run PHPStan with JSON error format
+        returncode, stdout, stderr = self.run_command([
+            str(phpstan_bin),
+            'analyse',
+            '--error-format=json',
+            '--no-progress',
+            '--memory-limit=512M',
+            *paths_to_analyze
+        ])
+        
+        try:
+            # PHPStan returns non-zero if errors found
+            result = json.loads(stdout) if stdout else {}
+            
+            total_file_errors = result.get('totals', {}).get('file_errors', 0)
+            total_errors = result.get('totals', {}).get('errors', 0)
+            files = result.get('files', {})
+            files_with_errors = len(files)
+            
+            # Count files analyzed (approximate from paths)
+            for path in paths_to_analyze:
+                if os.path.isfile(path):
+                    files_analyzed += 1
+                elif os.path.isdir(path):
+                    for root, dirs, filenames in os.walk(path):
+                        # Skip vendor and node_modules
+                        dirs[:] = [d for d in dirs if d not in ['vendor', 'node_modules', 'tests', 'Tests']]
+                        files_analyzed += len([f for f in filenames if f.endswith('.php')])
+            
+            self.results['phpstan_analysis']['total_errors'] = total_errors
+            self.results['phpstan_analysis']['total_file_errors'] = total_file_errors
+            self.results['phpstan_analysis']['files_with_errors'] = files_with_errors
+            self.results['phpstan_analysis']['files_analyzed'] = files_analyzed
+            self.results['phpstan_analysis']['paths_scanned'] = self.phpstan_paths
+            
+            if total_errors > 0 or total_file_errors > 0:
+                print(f"{Colors.WARNING}Found {total_errors} error(s) in {files_with_errors} file(s){Colors.ENDC}\n")
+                all_passed = False
+                
+                # Show top 10 errors
+                error_count = 0
+                for file_path, file_data in files.items():
+                    for message in file_data.get('messages', []):
+                        if error_count < 10:
+                            relative_path = file_path.replace(str(self.drupal_root), '')
+                            print(f"  {Colors.WARNING}{relative_path}:{message.get('line', '?')}{Colors.ENDC}")
+                            print(f"    {message.get('message', 'Unknown error')}")
+                            error_count += 1
+                
+                if total_errors > 10:
+                    print(f"{Colors.WARNING}  ... and {total_errors - 10} more errors{Colors.ENDC}")
+                
+                self.results['phpstan_analysis']['details'] = result
+            else:
+                print(f"{Colors.OKGREEN}✓ No errors found{Colors.ENDC}")
+                print(f"  Files analyzed: {files_analyzed}")
+            
+        except json.JSONDecodeError:
+            print(f"{Colors.FAIL}✗ Error parsing PHPStan output{Colors.ENDC}")
+            if stdout:
+                print(f"Output: {stdout[:500]}")
+            if stderr:
+                print(f"Error: {stderr[:500]}")
+            all_passed = False
+        
+        self.results['phpstan_analysis']['status'] = 'passed' if all_passed else 'failed'
+        
+        return all_passed
+    
     def scan_npm_packages(self) -> bool:
         """
         Scan package.json files in custom themes for security vulnerabilities
@@ -1011,6 +1343,7 @@ class DrupalSecurityAuditor:
         checks = [
             ('Composer Security Audit', self.results['composer_audit'].get('status')),
             ('PHPCS Code Analysis', self.results['phpcs_analysis'].get('status')),
+            ('PHPStan Static Analysis', self.results['phpstan_analysis'].get('status')),
             ('NPM Security Audit', self.results['npm_security'].get('status')),
             ('Gitleaks Secret Scan', self.results['gitleaks'].get('status'))
         ]
@@ -1034,6 +1367,11 @@ class DrupalSecurityAuditor:
             if previous_run.get('composer'):
                 curr_vulns = self.results['composer_audit'].get('vulnerabilities_count', 0)
                 prev_vulns = previous_run['composer']['total_vulnerabilities']
+                
+                # Ensure both are integers
+                curr_vulns = int(curr_vulns) if curr_vulns is not None else 0
+                prev_vulns = int(prev_vulns) if prev_vulns is not None else 0
+                
                 diff = curr_vulns - prev_vulns
                 
                 if diff > 0:
@@ -1047,6 +1385,11 @@ class DrupalSecurityAuditor:
             if previous_run.get('phpcs'):
                 curr_errors = sum(p.get('errors', 0) for p in self.results['phpcs_analysis'].get('paths', {}).values())
                 prev_errors = previous_run['phpcs']['total_errors']
+                
+                # Ensure both are integers
+                curr_errors = int(curr_errors) if curr_errors is not None else 0
+                prev_errors = int(prev_errors) if prev_errors is not None else 0
+                
                 diff = curr_errors - prev_errors
                 
                 if diff > 0:
@@ -1056,10 +1399,33 @@ class DrupalSecurityAuditor:
                 else:
                     print(f"  PHPCS: No change ({curr_errors} errors)")
             
+            # PHPStan comparison
+            if previous_run.get('phpstan'):
+                curr_phpstan_errors = self.results['phpstan_analysis'].get('total_errors', 0)
+                prev_phpstan_errors = previous_run['phpstan']['total_errors']
+                
+                # Ensure both are integers
+                curr_phpstan_errors = int(curr_phpstan_errors) if curr_phpstan_errors is not None else 0
+                prev_phpstan_errors = int(prev_phpstan_errors) if prev_phpstan_errors is not None else 0
+                
+                diff = curr_phpstan_errors - prev_phpstan_errors
+                
+                if diff > 0:
+                    print(f"  PHPStan: {Colors.FAIL}+{diff} errors{Colors.ENDC} ({prev_phpstan_errors} → {curr_phpstan_errors})")
+                elif diff < 0:
+                    print(f"  PHPStan: {Colors.OKGREEN}{diff} errors{Colors.ENDC} ({prev_phpstan_errors} → {curr_phpstan_errors})")
+                else:
+                    print(f"  PHPStan: No change ({curr_phpstan_errors} errors)")
+            
             # NPM comparison
             if previous_run.get('npm'):
                 curr_npm_vulns = sum(t.get('vulnerabilities', 0) for t in self.results['npm_security'].get('themes', {}).values())
                 prev_npm_vulns = previous_run['npm']['total_vulnerabilities']
+                
+                # Ensure both are integers
+                curr_npm_vulns = int(curr_npm_vulns) if curr_npm_vulns is not None else 0
+                prev_npm_vulns = int(prev_npm_vulns) if prev_npm_vulns is not None else 0
+                
                 diff = curr_npm_vulns - prev_npm_vulns
                 
                 if diff > 0:
@@ -1073,6 +1439,11 @@ class DrupalSecurityAuditor:
             if previous_run.get('gitleaks'):
                 curr_secrets = self.results['gitleaks'].get('secrets_found', 0)
                 prev_secrets = previous_run['gitleaks']['secrets_found']
+                
+                # Ensure both are integers
+                curr_secrets = int(curr_secrets) if curr_secrets is not None else 0
+                prev_secrets = int(prev_secrets) if prev_secrets is not None else 0
+                
                 diff = curr_secrets - prev_secrets
                 
                 if diff > 0:
@@ -1105,6 +1476,7 @@ class DrupalSecurityAuditor:
         # Run all checks
         composer_passed = self.run_composer_audit()
         phpcs_passed = self.run_phpcs()
+        phpstan_passed = self.run_phpstan()
         npm_passed = self.scan_npm_packages()
         gitleaks_passed = self.run_gitleaks()
         
@@ -1135,7 +1507,7 @@ class DrupalSecurityAuditor:
             self.db.close()
         
         # Return overall status
-        return all([composer_passed, phpcs_passed, npm_passed, gitleaks_passed])
+        return all([composer_passed, phpcs_passed, phpstan_passed, npm_passed, gitleaks_passed])
     
     def generate_dashboard(self):
         """Generate HTML dashboard with D3.js visualizations"""
@@ -1149,21 +1521,22 @@ class DrupalSecurityAuditor:
             dashboard_file = dashboard_dir / 'index.html'
             data_file = dashboard_dir / 'audit_data.json'
             
-            # Save data
+            # Save data file (for reference)
             with open(data_file, 'w') as f:
                 f.write(dashboard_data)
             
-            # Generate HTML (we'll create this separately)
-            self._create_dashboard_html(dashboard_file)
+            # Generate HTML with embedded data (avoids CORS issues)
+            self._create_dashboard_html(dashboard_file, dashboard_data)
             
             print(f"\n{Colors.OKGREEN}✓ Dashboard generated: {dashboard_file}{Colors.ENDC}")
-            print(f"{Colors.OKCYAN}  Open in browser: file://{dashboard_file}{Colors.ENDC}")
+            print(f"{Colors.OKCYAN}  Open directly in browser: file://{dashboard_file}{Colors.ENDC}")
+            print(f"{Colors.OKCYAN}  Or run: cd {dashboard_dir} && python3 -m http.server 8000{Colors.ENDC}")
             
         except Exception as e:
             print(f"\n{Colors.WARNING}Warning: Failed to generate dashboard: {e}{Colors.ENDC}")
     
-    def _create_dashboard_html(self, output_path: Path):
-        """Create the HTML dashboard file"""
+    def _create_dashboard_html(self, output_path: Path, embedded_data: str = None):
+        """Create the HTML dashboard file with optional embedded data"""
         # Look for dashboard template
         script_dir = Path(__file__).parent
         template_path = script_dir / 'dashboard_template.html'
@@ -1182,26 +1555,42 @@ class DrupalSecurityAuditor:
                     break
         
         if template_path.exists():
-            # Copy template to output
-            import shutil
-            shutil.copy(template_path, output_path)
+            # Read template
+            with open(template_path, 'r') as f:
+                html_content = f.read()
+            
+            # Embed data if provided
+            if embedded_data:
+                # Insert data as a JavaScript variable before the main script
+                data_script = f"\n    <script>\n        const EMBEDDED_DATA = {embedded_data};\n    </script>\n"
+                # Insert before the main script tag
+                html_content = html_content.replace(
+                    '<script>',
+                    data_script + '    <script>',
+                    1  # Only replace first occurrence
+                )
+            
+            with open(output_path, 'w') as f:
+                f.write(html_content)
         else:
             # Create embedded template if file not found
             with open(output_path, 'w') as f:
-                f.write(self._get_embedded_dashboard_template())
+                f.write(self._get_embedded_dashboard_template(embedded_data))
     
-    def _get_embedded_dashboard_template(self) -> str:
+    def _get_embedded_dashboard_template(self, data: str = None) -> str:
         """Return embedded dashboard HTML template"""
-        # Return a minimal version that loads from CDN
-        return '''<!DOCTYPE html>
+        # Return a minimal version
+        return f'''<!DOCTYPE html>
 <html><head><meta charset="UTF-8"><title>Drupal Audit Dashboard</title>
 <script src="https://d3js.org/d3.v7.min.js"></script>
-<style>body{font-family:sans-serif;padding:20px;background:#f5f5f5;}
-.card{background:white;padding:20px;margin:10px;border-radius:8px;box-shadow:0 2px 4px rgba(0,0,0,0.1);}
+<style>body{{font-family:sans-serif;padding:20px;background:#f5f5f5;}}
+.card{{background:white;padding:20px;margin:10px;border-radius:8px;box-shadow:0 2px 4px rgba(0,0,0,0.1);}}
 </style></head><body>
 <div class="card"><h1>Dashboard Template Not Found</h1>
 <p>Place dashboard_template.html in the same directory as the audit script.</p>
-<p>Data is available in <code>audit_data.json</code></p></div>
+<p>Data is available in <code>audit_data.json</code></p>
+<p>Run: <code>python3 -m http.server 8000</code> in the audit-dashboard directory</p>
+</div>
 </body></html>'''
         
 
@@ -1245,6 +1634,12 @@ Examples:
     )
     
     parser.add_argument(
+        '--phpstan-paths',
+        nargs='+',
+        help='Paths to run PHPStan on (relative to drupal_root). Example: web/modules/custom web/themes/custom'
+    )
+    
+    parser.add_argument(
         '--themes-path',
         help='Path to custom themes directory for NPM security scanning'
     )
@@ -1282,6 +1677,7 @@ Examples:
     auditor = DrupalSecurityAuditor(
         drupal_root=str(drupal_root),
         phpcs_paths=args.phpcs_paths,
+        phpstan_paths=args.phpstan_paths,
         custom_themes_path=args.themes_path,
         output_file=args.output,
         db_path=args.db_path,

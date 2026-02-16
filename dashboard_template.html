@@ -302,6 +302,12 @@
                 <div class="chart-container" id="phpcs-chart"></div>
             </div>
 
+            <!-- PHPStan Issues -->
+            <div class="card">
+                <h2>PHPStan Static Analysis</h2>
+                <div class="chart-container" id="phpstan-chart"></div>
+            </div>
+
             <!-- NPM Vulnerabilities -->
             <div class="card">
                 <h2>NPM Vulnerabilities by Severity</h2>
@@ -330,6 +336,13 @@
                 <div class="chart-container" id="phpcs-trend-chart"></div>
             </div>
         </div>
+
+        <div class="grid">
+            <div class="card full-width">
+                <h2>Static Analysis Trends (PHPStan)</h2>
+                <div class="chart-container" id="phpstan-trend-chart"></div>
+            </div>
+        </div>
     </div>
 
     <div class="tooltip" id="tooltip"></div>
@@ -348,7 +361,23 @@
         };
 
         // Load and display data
-        d3.json('audit_data.json').then(data => {
+        function loadDashboard() {
+            // Try to load from embedded data first, then fall back to JSON file
+            if (typeof EMBEDDED_DATA !== 'undefined') {
+                initializeDashboard(EMBEDDED_DATA);
+            } else {
+                d3.json('audit_data.json').then(data => {
+                    initializeDashboard(data);
+                }).catch(error => {
+                    document.getElementById('loading').innerHTML = 
+                        `<div class="error">Error loading audit data: ${error.message}<br><br>
+                        Make sure you're running a local server:<br>
+                        <code>python3 -m http.server 8000</code></div>`;
+                });
+            }
+        }
+
+        function initializeDashboard(data) {
             document.getElementById('loading').style.display = 'none';
             document.getElementById('dashboard').style.display = 'block';
             
@@ -368,6 +397,7 @@
             if (data.latest) {
                 createComposerSeverityChart(data.latest.composer);
                 createPhpcsChart(data.latest.phpcs);
+                createPhpstanChart(data.latest.phpstan);
                 createNpmSeverityChart(data.latest.npm);
                 createGitleaksChart(data.latest.gitleaks);
             }
@@ -376,12 +406,9 @@
             if (data.history) {
                 createTrendChart(data.history);
                 createPhpcsTrendChart(data.history);
+                createPhpstanTrendChart(data.history);
             }
-
-        }).catch(error => {
-            document.getElementById('loading').innerHTML = 
-                `<div class="error">Error loading audit data: ${error.message}</div>`;
-        });
+        }
 
         function createOverviewCards(data) {
             const grid = document.getElementById('overview-grid');
@@ -452,6 +479,39 @@
                         <div class="stat-box moderate">
                             <span class="label">Warnings</span>
                             <span class="value">${warnings}</span>
+                        </div>
+                    </div>
+                `;
+            }
+
+            // PHPStan Card
+            if (latest.phpstan) {
+                const phpstan = latest.phpstan;
+                const errors = phpstan.errors || 0;
+                const filesWithErrors = phpstan.files_with_errors || 0;
+                const filesAnalyzed = phpstan.files_analyzed || 0;
+                const prevErrors = previousRun ? previousRun.phpstan_errors : errors;
+                
+                grid.innerHTML += `
+                    <div class="card">
+                        <h2>
+                            Static Analysis (PHPStan)
+                            <span class="status-badge ${phpstan.status}">${phpstan.status}</span>
+                        </h2>
+                        <div class="stat-box critical">
+                            <span class="label">Total Errors</span>
+                            <div>
+                                <span class="value">${errors}</span>
+                                ${getComparisonBadge(errors, prevErrors)}
+                            </div>
+                        </div>
+                        <div class="stat-box high">
+                            <span class="label">Files with Errors</span>
+                            <span class="value">${filesWithErrors}</span>
+                        </div>
+                        <div class="stat-box info">
+                            <span class="label">Files Analyzed</span>
+                            <span class="value">${filesAnalyzed}</span>
                         </div>
                     </div>
                 `;
@@ -533,6 +593,7 @@
         }
 
         function createComposerSeverityChart(data) {
+            console.log(data);
             if (!data) return;
 
             const chartData = [
@@ -541,6 +602,8 @@
                 { severity: 'Moderate', count: data.moderate || 0, color: colors.moderate },
                 { severity: 'Low', count: data.low || 0, color: colors.low }
             ];
+
+            console.log(chartData);
 
             createBarChart('#composer-severity-chart', chartData);
         }
@@ -569,6 +632,17 @@
             createBarChart('#phpcs-chart', chartData);
         }
 
+        function createPhpstanChart(data) {
+            if (!data) return;
+
+            const chartData = [
+                { type: 'Errors', count: data.errors || 0, color: colors.critical },
+                { type: 'Files with Errors', count: data.files_with_errors || 0, color: colors.high }
+            ];
+
+            createBarChart('#phpstan-chart', chartData);
+        }
+
         function createGitleaksChart(data) {
             if (!data) return;
 
@@ -584,8 +658,9 @@
             container.selectAll('*').remove();
 
             const width = container.node().getBoundingClientRect().width;
+            console.log(width);
             const height = 250;
-            const margin = { top: 20, right: 20, bottom: 50, top: 40 };
+            const margin = { left: 20, right: 20, bottom: 50, top: 40 };
 
             const svg = container.append('svg')
                 .attr('width', width)
@@ -858,6 +933,83 @@
                 .on('mouseout', hideTooltip);
         }
 
+        function createPhpstanTrendChart(history) {
+            const container = d3.select('#phpstan-trend-chart');
+            container.selectAll('*').remove();
+
+            if (!history || history.length === 0) return;
+
+            const width = container.node().getBoundingClientRect().width;
+            const height = 300;
+            const margin = { top: 20, right: 100, bottom: 50, left: 60 };
+
+            const svg = container.append('svg')
+                .attr('width', width)
+                .attr('height', height);
+
+            const chartWidth = width - margin.left - margin.right;
+            const chartHeight = height - margin.top - margin.bottom;
+
+            const g = svg.append('g')
+                .attr('transform', `translate(${margin.left},${margin.top})`);
+
+            const data = history.slice().reverse();
+            data.forEach(d => {
+                d.date = new Date(d.timestamp);
+            });
+
+            const x = d3.scaleTime()
+                .domain(d3.extent(data, d => d.date))
+                .range([0, chartWidth]);
+
+            const y = d3.scaleLinear()
+                .domain([0, d3.max(data, d => d.phpstan_errors || 0) || 1])
+                .nice()
+                .range([chartHeight, 0]);
+
+            g.append('g')
+                .attr('class', 'grid')
+                .call(d3.axisLeft(y).tickSize(-chartWidth).tickFormat(''));
+
+            g.append('g')
+                .attr('class', 'axis')
+                .attr('transform', `translate(0,${chartHeight})`)
+                .call(d3.axisBottom(x).ticks(6));
+
+            g.append('g')
+                .attr('class', 'axis')
+                .call(d3.axisLeft(y));
+
+            const line = d3.line()
+                .x(d => x(d.date))
+                .y(d => y(d.value))
+                .curve(d3.curveMonotoneX);
+
+            // PHPStan errors line
+            const phpstanData = data.map(d => ({ date: d.date, value: d.phpstan_errors || 0 }));
+            
+            g.append('path')
+                .datum(phpstanData)
+                .attr('class', 'line')
+                .attr('d', line)
+                .attr('stroke', colors.critical);
+
+            // Add dots with tooltips
+            g.selectAll('.dot-phpstan')
+                .data(phpstanData)
+                .enter()
+                .append('circle')
+                .attr('class', 'dot')
+                .attr('cx', d => x(d.date))
+                .attr('cy', d => y(d.value))
+                .attr('r', 4)
+                .attr('fill', colors.critical)
+                .on('mouseover', function(event, d) {
+                    showTooltip(event, `PHPStan Errors: ${d.value}<br>${d.date.toLocaleDateString()}`);
+                })
+                .on('mouseout', hideTooltip);
+        }
+
         function showTooltip(event, content) {
             const tooltip = d3.select('#tooltip');
             tooltip.html(content)
@@ -869,6 +1021,9 @@
         function hideTooltip() {
             d3.select('#tooltip').style('opacity', 0);
         }
+
+        // Initialize dashboard when page loads
+        loadDashboard();
     </script>
 </body>
 </html>

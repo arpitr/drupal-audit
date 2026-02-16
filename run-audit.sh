@@ -18,6 +18,7 @@ NC='\033[0m' # No Color
 DRUPAL_ROOT="/Users/arpitrastogi/workspace/drupal-test"
 SCRIPT_PATH="$(dirname "$0")/drupal_security_audit.py"
 PHPCS_PATHS="web/modules/custom web/themes/custom"
+PHPSTAN_PATHS="web/modules/custom web/themes/custom"
 THEMES_PATH="web/themes/custom"
 OUTPUT_DIR="./audit-reports"
 
@@ -101,6 +102,7 @@ run_full_audit() {
     
     python3 "$SCRIPT_PATH" "$DRUPAL_ROOT" \
         --phpcs-paths $PHPCS_PATHS \
+        --phpstan-paths $PHPSTAN_PATHS \
         --themes-path "$THEMES_PATH" \
         --output "$output_file"
     
@@ -121,6 +123,7 @@ run_ci_audit() {
     set +e
     python3 "$SCRIPT_PATH" "$DRUPAL_ROOT" \
         --phpcs-paths $PHPCS_PATHS \
+        --phpstan-paths $PHPSTAN_PATHS \
         --themes-path "$THEMES_PATH" \
         --output "$output_file"
     
@@ -147,6 +150,7 @@ run_custom_audit() {
     
     # Ask user for customization
     read -p "Run PHPCS analysis? (y/n): " run_phpcs
+    read -p "Run PHPStan analysis? (y/n): " run_phpstan
     read -p "Scan NPM packages in themes? (y/n): " run_npm
     read -p "Save JSON report? (y/n): " save_report
     
@@ -160,6 +164,15 @@ run_custom_audit() {
             cmd="$cmd --phpcs-paths $custom_paths"
         else
             cmd="$cmd --phpcs-paths $PHPCS_PATHS"
+        fi
+    fi
+    
+    if [[ "$run_phpstan" == "y" ]]; then
+        read -p "Enter paths for PHPStan (space-separated, default: $PHPSTAN_PATHS): " custom_phpstan_paths
+        if [ -n "$custom_phpstan_paths" ]; then
+            cmd="$cmd --phpstan-paths $custom_phpstan_paths"
+        else
+            cmd="$cmd --phpstan-paths $PHPSTAN_PATHS"
         fi
     fi
     
@@ -194,19 +207,20 @@ Usage: $0 [PROFILE]
 
 Profiles:
   quick     Quick audit (Composer + Gitleaks only) - ~1-2 min
-  full      Full audit (all checks) - ~5-10 min  
+  full      Full audit (all checks including PHPStan) - ~5-10 min  
   ci        CI/CD audit (full audit with strict exit codes)
   custom    Custom audit (interactive configuration)
 
 Configuration (edit this script to customize):
   DRUPAL_ROOT   = $DRUPAL_ROOT
   PHPCS_PATHS   = $PHPCS_PATHS
+  PHPSTAN_PATHS = $PHPSTAN_PATHS
   THEMES_PATH   = $THEMES_PATH
   OUTPUT_DIR    = $OUTPUT_DIR
 
 Examples:
   $0 quick          # Fast security check
-  $0 full           # Comprehensive audit with report
+  $0 full           # Comprehensive audit with PHPCS, PHPStan, and report
   $0 ci             # For use in CI/CD pipelines
   $0 custom         # Interactive custom configuration
 
